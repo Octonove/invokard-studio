@@ -1,0 +1,5 @@
+allowBuilds:
+  esbuild: true
+  ffmpeg-static: true
+minimumReleaseAgeExclude:
+  - '@modelcontextprotocol/sdk@1.31.0'

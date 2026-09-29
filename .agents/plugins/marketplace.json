@@ -1,0 +1,20 @@
+{
+  "name": "invokard-studio",
+  "interface": {
+    "displayName": "Invokard Studio"
+  },
+  "plugins": [
+    {
+      "name": "invokard-studio",
+      "source": {
+        "source": "local",
+        "path": "./plugins/invokard-studio"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
