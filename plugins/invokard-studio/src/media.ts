@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { Asset, CarouselSlide, Project, RenderOptions, RenderResult } from './types.js';
+import { buildCaptionTrack } from './captions.js';
 
 interface Probe { streams: Array<{ codec_type?: string; width?: number; height?: number; duration?: string }>; format: { duration?: string; format_name?: string }; }
 interface ToolStatus { available: boolean; path?: string; version?: string; error?: string; }
@@ -63,7 +64,13 @@ async function findTool(name: 'ffmpeg' | 'ffprobe'): Promise<ToolStatus> {
 
 export async function doctorMedia(): Promise<object> {
   const [ffmpeg, ffprobe] = await Promise.all([findTool('ffmpeg'), findTool('ffprobe')]);
-  return { ready: ffmpeg.available && ffprobe.available, ffmpeg, ffprobe };
+  const captions = await captionCapability(ffmpeg.path);
+  return { ready: ffmpeg.available && ffprobe.available && captions.available, ffmpeg, ffprobe, captions };
+}
+async function captionCapability(executable?: string) {
+  let available = false;
+  if (executable) try { available = /\bass\s+V->V\b/.test(await execute(executable, ['-hide_banner', '-filters'], { timeout: 10000 })); } catch { /* Report a useful dependency error below. */ }
+  return { available, renderer: 'libass', ...(available ? {} : { error: 'Styled captions require the FFmpeg ass/libass filter. Run the plugin scripts/setup.mjs --install-tools command, or select a full FFmpeg build with libass using FFMPEG_PATH.' }) };
 }
 async function requireTool(name: 'ffmpeg' | 'ffprobe') {
   const found = await findTool(name); if (!found.path) throw new Error(found.error); return found.path;
@@ -207,6 +214,7 @@ function frameFit(project: Project) { return `scale=${project.format.width}:${pr
 
 export async function renderVideo(projectDir: string, project: Project, options: RenderOptions = {}): Promise<RenderResult> {
   checkAbort(options.signal); validateProject(project, true);
+  const captionTrack = buildCaptionTrack(project);
   const root = await realpath(projectDir); const probePath = await requireTool('ffprobe');
   const needed = [...project.scenes.map(s => s.assetId), project.audio.voiceAssetId, project.audio.musicAssetId].filter((id): id is string => Boolean(id));
   const assets = await resolveAssets(root, project, needed, probePath, options.signal);
@@ -220,6 +228,7 @@ export async function renderVideo(projectDir: string, project: Project, options:
   }
   for (const id of [project.audio.voiceAssetId, project.audio.musicAssetId]) if (id && !assets.get(id)!.info.streams.some(s => s.codec_type === 'audio')) throw new Error(`Audio asset ${id} has no audio stream`);
   const executable = await requireTool('ffmpeg'); checkAbort(options.signal);
+  if (project.captions.length) { const captions = await captionCapability(executable); if (!captions.available) throw new Error(captions.error); }
   const output = await prepareExport(root);
   try {
     const font = await prepareFont(root, output.work, project);
@@ -267,13 +276,9 @@ export async function renderVideo(projectDir: string, project: Project, options:
       inputs.push(...inputSafety, ...(loop ? ['-stream_loop', '-1'] : []), '-i', path.relative(output.work, assets.get(id)!.file));
       audioFilters.push(`[${index}:a]aresample=48000,volume=${volume},apad,atrim=duration=${duration},asetpts=PTS-STARTPTS[a${index}]`); audioLabels.push(`[a${index}]`);
     }
-    const captionFilters: string[] = [];
-    for (let i = 0; i < project.captions.length; i++) {
-      const caption = project.captions[i];
-      captionFilters.push(await textFilter(output.work, `caption-${i}`, caption.text, { font, size: Math.round(width * 0.047), color: project.brand.color, x: '(w-text_w)/2', y: 'h*0.80-text_h/2', width: width * 0.82, box: true, enable: `gte(t,${caption.start})*lt(t,${caption.end})` }));
-    }
-    if (captionFilters.length) await writeFile(path.join(output.work, 'captions.ffgraph'), captionFilters.join(','));
-    const encode = ['-map', '0:v:0', ...(captionFilters.length ? ['-filter_script:v', 'captions.ffgraph', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p'] : ['-c:v', 'copy'])];
+    await writeFile(path.join(output.staging, 'captions.ass'), captionTrack.ass, 'utf8');
+    // Fixed relative filenames avoid filtergraph escaping and Windows command-line limits.
+    const encode = ['-map', '0:v:0', ...(project.captions.length ? ['-vf', 'ass=filename=../captions.ass:fontsdir=.', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p'] : ['-c:v', 'copy'])];
     if (audioLabels.length) {
       audioFilters.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:normalize=0,alimiter=limit=0.95:level=false[audio]`);
       await writeFile(path.join(output.work, 'audio.ffgraph'), audioFilters.join(';'));
@@ -286,7 +291,7 @@ export async function renderVideo(projectDir: string, project: Project, options:
     await writeCopy(output.staging, project);
     if (options.preview !== false) await preview(output.staging, project);
     checkAbort(options.signal); await rm(output.work, { recursive: true, force: true }); await rename(output.staging, output.final);
-    return { video: path.join(output.final, 'reel.mp4'), subtitles: path.join(output.final, 'captions.srt'), poster: path.join(output.final, 'cover.png'), copy: path.join(output.final, 'caption.md') };
+    return { video: path.join(output.final, 'reel.mp4'), subtitles: path.join(output.final, 'captions.srt'), styledSubtitles: path.join(output.final, 'captions.ass'), captionTiming: captionTrack.captionTiming, poster: path.join(output.final, 'cover.png'), copy: path.join(output.final, 'caption.md') };
   } catch (error) { await rm(output.staging, { recursive: true, force: true }).catch(() => {}); throw error; }
 }
 

@@ -79,13 +79,14 @@ Configura estas variables mediante el administrador de entorno de tu sistema o t
 | --- | --- |
 | Higgsfield | `HIGGSFIELD_API_KEY`, `HIGGSFIELD_API_SECRET` |
 | Música Magnific Lyria 3 | `MAGNIFIC_API_KEY` |
+| Transcripción local recomendada faster-whisper | `FASTER_WHISPER_PYTHON_PATH`, `FASTER_WHISPER_MODEL_PATH` |
 | Transcripción local opcional whisper.cpp | `WHISPER_CPP_PATH`, `WHISPER_MODEL_PATH` |
 
 El OAuth del MCP Magnific no configura automáticamente su API key de música. No escribas secretos en `.mcp.json`, `project.json`, comandos guardados en historial ni mensajes al asistente. Este paquete solo transmite a su proceso los nombres permitidos por `env_vars`.
 
-La transcripción es local mediante un ejecutable whisper.cpp y un modelo instalado por el usuario. Esas dos variables contienen rutas, no claves. El instalador de herramientas de Studio solo descarga FFmpeg/ffprobe; no instala whisper.cpp ni modelos. También puedes proporcionar subtítulos SRT existentes. No se implementa un servicio de transcripción OpenAI en esta beta.
+La transcripción es local. Para subtítulos por palabra se recomienda faster-whisper: Python con las dependencias fijadas que incluye `runtime/requirements-transcription.txt` y un modelo local. El runner viene en el mismo plugin. Esas variables contienen rutas, no claves; el modo automático prefiere faster-whisper cuando está configurado. whisper.cpp se conserva como alternativa y advierte de sus tiempos heurísticos. El instalador FFmpeg no instala Python, reconocedores ni modelos. Sigue [la guía de transcripción](transcription.md) para prepararlos explícitamente. También puedes proporcionar una alineación JSON existente. Un SRT convencional permite subtítulos por frase, pero no contiene la sincronización de cada palabra.
 
-`studio_transcribe` devuelve un trabajo: consulta `studio_job_status` para recuperar la transcripción. Sus tiempos pertenecen al archivo de origen completo. Ajusta los tiempos a los recortes y posiciones del montaje antes de guardarlos mediante `studio_set_captions`.
+`studio_transcribe` devuelve un trabajo: consulta `studio_job_status` para recuperar la transcripción y comprobar sus limitaciones de alineación. Sus tiempos pertenecen al archivo de origen completo. Ajusta los tiempos de cada frase y cada palabra a los recortes y posiciones del montaje antes de guardarlos mediante `studio_set_captions`. El modo `captionStyle.mode: "word"` exige palabras temporizadas; el renderer utiliza libass y entrega tanto SRT como ASS. [Opciones del estilo profesional](captions.md).
 
 Usa `studio_provider_setup` para obtener las instrucciones del proveedor y `studio_provider_status` para comprobar presencia de configuración. Un resultado «configurado» no confirma autenticación, saldo o generación.
 
@@ -124,7 +125,7 @@ Actualiza el clon con Git, refresca el marketplace y reinstala o actualiza el pl
 - **Node no encontrado:** instala Node 22+ y reinicia Codex. El runtime no descarga Node automáticamente.
 - **npm no encontrado al instalar herramientas:** usa una instalación de Node que incluya npm. El setup admite `--npm-cli "/ruta/npm-cli.js"` para ubicaciones personalizadas.
 - **FFmpeg no encontrado:** ejecuta setup, revisa `FFMPEG_PATH`/`FFPROBE_PATH` y la carpeta de herramientas.
-- **Falta libass, fuentes o un codec:** usa una compilación con `libass`, `drawtext` y `libx264`, y ejecuta la demo. `doctor` informa de versiones y disponibilidad; no enumera filtros ni codecs. No todas las instalaciones FFmpeg tienen las mismas funciones.
+- **Falta libass, fuentes o un codec:** usa una compilación con `libass`, `drawtext` y `libx264`, y ejecuta la demo. `doctor` informa de versiones y comprueba el filtro `ass`; no comprueba todos los codecs. La transcripción de audio no requiere libass.
 - **Proveedor sin configurar:** puedes seguir trabajando con medios locales. La generación autenticada requiere tu propia cuenta.
 - **Ruta con espacios o caracteres Unicode:** pon la ruta completa entre comillas. No copies rutas de otro equipo.
 - **Extensión IDE:** la extensión Codex no instala plugins completos actualmente. La ruta de esta beta es Codex app/CLI. MCP independiente es posible, pero exige instalar las skills aparte y no es la ruta documentada de esta beta.

@@ -36,6 +36,41 @@ function rms(samples: Buffer, start: number, end: number) {
   let total = 0; for (let i = from; i < to; i++) total += samples.readFloatLE(i * 4) ** 2;
   return Math.sqrt(total / (to - from));
 }
+async function frameRgb(exe: string, file: string, time: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(exe, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-ss', String(time), '-i', file, '-frames:v', '1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'], { shell: false, windowsHide: true });
+    const chunks: Buffer[] = []; let errors = '';
+    child.stdout.on('data', data => chunks.push(data)); child.stderr.on('data', data => errors += data);
+    child.once('error', reject); child.once('close', code => code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(errors)));
+  });
+}
+function coloredText(pixels: Buffer, width: number) {
+  let yellow = 0, white = 0, sumX = 0;
+  for (let i = 0; i < pixels.length; i += 3) {
+    const [r, g, b] = pixels.subarray(i, i + 3);
+    if (r > 170 && g > 110 && b < 100 && r - b > 100) { yellow++; sumX += (i / 3) % width; }
+    if (r > 190 && g > 190 && b > 190) white++;
+  }
+  return { yellow, white, x: sumX / yellow };
+}
+
+test('real ASS rendering moves active color between words, clears it in pauses and exports the styled cover', { timeout: 60000 }, async () => {
+  const doctor: any = await doctorMedia(), dir = await fixtureDir(), p = project();
+  assert.equal(doctor.captions.available, true); assert.equal(doctor.captions.renderer, 'libass');
+  p.format = { width: 540, height: 960, fps: 30 }; p.scenes = [{ id: 'black', duration: 2, background: '#000000' }];
+  p.brand.accent = '#F1B553';
+  p.captions = [{ start: 0, end: 2, text: 'Hola mundo', words: [{ start: 0, end: .6, text: 'Hola' }, { start: 1, end: 1.7, text: 'mundo' }] }];
+  const result = await renderVideo(dir, p);
+  const [first, pause, second, cover] = await Promise.all([.2, .8, 1.3, 0].map((time, i) => frameRgb(doctor.ffmpeg.path, i === 3 ? result.poster : result.video, time)));
+  const a = coloredText(first, 540), b = coloredText(pause, 540), c = coloredText(second, 540);
+  assert.ok(a.yellow > 200 && c.yellow > 200, `Active word fill must be visible: ${JSON.stringify({ a, b, c })}`);
+  assert.ok(a.x + 50 < c.x, `Highlight must move from the first word to the second: ${JSON.stringify({ a, b, c })}`);
+  assert.ok(b.yellow < 10 && b.white > 300, 'Pause must keep the phrase visible with no active word');
+  assert.ok(coloredText(cover, 540).yellow > 200, 'Cover must match the styled first video frame');
+  assert.ok(result.styledSubtitles); assert.match(await readFile(result.styledSubtitles, 'utf8'), /\[V4\+ Styles\]/);
+  assert.equal(await readFile(result.subtitles, 'utf8'), '1\n00:00:00,000 --> 00:00:02,000\nHola mundo\n');
+  assert.equal(result.captionTiming?.wordTimedCaptions, 1);
+});
 
 test('rejects asset traversal, URLs, invalid timing and already-cancelled renders before starting tools', async () => {
   const dir = await fixtureDir();

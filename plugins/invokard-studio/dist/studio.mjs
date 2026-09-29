@@ -67,10 +67,10 @@ var init_util = __esm({
           return obj[e];
         });
       };
-      util2.objectKeys = typeof Object.keys === "function" ? (obj) => Object.keys(obj) : (object4) => {
+      util2.objectKeys = typeof Object.keys === "function" ? (obj) => Object.keys(obj) : (object5) => {
         const keys = [];
-        for (const key in object4) {
-          if (Object.prototype.hasOwnProperty.call(object4, key)) {
+        for (const key in object5) {
+          if (Object.prototype.hasOwnProperty.call(object5, key)) {
             keys.push(key);
           }
         }
@@ -4139,6 +4139,167 @@ var init_zod = __esm({
   }
 });
 
+// plugins/invokard-studio/src/captions.ts
+function bounded(value, fallback, min, max, name, integer2 = false) {
+  const result = value ?? fallback;
+  if (!Number.isFinite(result) || result < min || result > max || integer2 && !Number.isInteger(result)) throw new Error(`Invalid caption style ${name}`);
+  return result;
+}
+function assColor(value) {
+  if (!/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Caption colors must use #RRGGBB");
+  return value.slice(5, 7).toUpperCase() + value.slice(3, 5).toUpperCase() + value.slice(1, 3).toUpperCase();
+}
+function styleFor(project) {
+  const style = project.captionStyle ?? {}, scale = project.format.width / 1080;
+  if (style.mode && !["auto", "word", "plain"].includes(style.mode)) throw new Error("Invalid caption mode");
+  if (style.bold !== void 0 && typeof style.bold !== "boolean") throw new Error("Invalid caption bold style");
+  return {
+    mode: style.mode ?? "auto",
+    size: Math.max(1, Math.round(bounded(style.fontSize, 92, 16, 240, "fontSize") * scale)),
+    outline: Number((bounded(style.outlineWidth, 5, 0, 12, "outlineWidth") * scale).toFixed(2)),
+    wordsPerLine: bounded(style.maxWordsPerLine, 3, 1, 8, "maxWordsPerLine", true),
+    lines: bounded(style.maxLines, 2, 1, 3, "maxLines", true),
+    marginBottom: Math.round(project.format.height * bounded(style.marginBottom, 0.22, 0.08, 0.45, "marginBottom")),
+    marginSide: Math.round(project.format.width * 0.08),
+    bold: style.bold === false ? 0 : -1,
+    color: assColor(style.color ?? "#FFFFFF"),
+    active: assColor(style.activeColor ?? project.brand.accent),
+    outlineColor: assColor(style.outlineColor ?? "#000000"),
+    // ASS style fields cannot contain commas; names also must never add tags or records.
+    font: /^[\p{L}\p{N} ._-]{1,80}$/u.test(project.brand.fontFamily) ? project.brand.fontFamily : "Arial"
+  };
+}
+function escapeAssText(text) {
+  return text.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\\/g, "\\\u2060").replace(/\{/g, "\\{").replace(/\}/g, "\\}");
+}
+function timestamp(seconds) {
+  const cs = Math.round(seconds * 100);
+  return `${Math.floor(cs / 36e4)}:${String(Math.floor(cs / 6e3) % 60).padStart(2, "0")}:${String(Math.floor(cs / 100) % 60).padStart(2, "0")}.${String(cs % 100).padStart(2, "0")}`;
+}
+function normalized(text) {
+  return text.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+function validateCaption(caption, previousEnd) {
+  if (!Number.isFinite(caption.start) || !Number.isFinite(caption.end) || caption.start < 0 || caption.start < previousEnd || caption.end <= caption.start) throw new Error("Caption timing must be ordered and non-overlapping");
+  if (typeof caption.text !== "string" || !caption.text.trim() || caption.text.length > 4e3) throw new Error("Invalid caption text");
+  if (caption.words !== void 0) {
+    if (!Array.isArray(caption.words) || !caption.words.length || caption.words.length > 500) throw new Error("Caption words require timed words");
+    let end = caption.start;
+    for (const word of caption.words) {
+      if (!Number.isFinite(word.start) || !Number.isFinite(word.end) || word.start < end - 1e-3 || word.start < caption.start - 1e-3 || word.end > caption.end + 1e-3 || word.end <= word.start || typeof word.text !== "string" || !word.text || /\s/u.test(word.text) || word.text.length > 160) throw new Error("Caption word timings must be ordered, non-overlapping and inside the caption");
+      end = word.end;
+    }
+    if (normalized(caption.words.map((word) => word.text).join(" ")) !== normalized(caption.text)) throw new Error("Caption word text must match its phrase");
+  }
+}
+function units(text) {
+  return [...text].reduce((sum, char) => sum + (new RegExp("\\p{M}", "u").test(char) ? 0 : /[ilI.,'!|:;]/.test(char) ? 0.32 : /[MW@%]/.test(char) ? 1 : /\s/u.test(char) ? 0.34 : /[\p{Lu}\p{N}]/u.test(char) ? 0.76 : /[\u0000-\u024f]/.test(char) ? 0.63 : 1.05), 0);
+}
+function fitSize(lines, size, safeWidth) {
+  const widest = Math.max(1, ...lines.map((line) => units(line.join(" "))));
+  return Math.max(1, Math.min(size, Math.floor(safeWidth / widest)));
+}
+function phraseLines(text, maxLines, wordsPerLine) {
+  const words = text.trim().split(/\s+/u), lines = [];
+  const count = Math.min(maxLines, Math.ceil(words.length / wordsPerLine));
+  let offset = 0;
+  for (let i = 0; i < count; i++) {
+    const take = Math.ceil((words.length - offset) / (count - i));
+    lines.push(words.slice(offset, offset + take));
+    offset += take;
+  }
+  return lines;
+}
+function wordBlocks(words, style, safeWidth) {
+  const blocks = [];
+  let block = { words: [], lines: [[]] };
+  const flush = () => {
+    if (block.words.length) blocks.push(block);
+    block = { words: [], lines: [[]] };
+  };
+  for (const word of words) {
+    const previous = block.words.at(-1);
+    if (previous && word.start - previous.end >= 0.45) flush();
+    let line = block.lines.at(-1);
+    if (line.length && (line.length >= style.wordsPerLine || units([...line, word.text].join(" ")) * style.size > safeWidth)) {
+      if (block.lines.length >= style.lines) flush();
+      else block.lines.push([]);
+      line = block.lines.at(-1);
+    }
+    line.push(word.text);
+    block.words.push(word);
+  }
+  flush();
+  return blocks;
+}
+function buildCaptionTrack(project) {
+  const style = styleFor(project), events = [], warnings = [];
+  const safeWidth = project.format.width - 2 * (style.marginSide + style.outline);
+  let previousEnd = 0, wordTimedCaptions = 0, fallbackCount = 0, longPlain = 0;
+  for (const caption of project.captions) {
+    validateCaption(caption, previousEnd);
+    previousEnd = caption.end;
+    if (style.mode === "word" && !caption.words?.length) throw new Error("Word caption mode requires real word timings for every caption. Transcribe with word timing or use auto/plain.");
+    if (style.mode === "plain" || !caption.words?.length) {
+      const lines = phraseLines(caption.text, style.lines, style.wordsPerLine);
+      if (!caption.words?.length && style.mode === "auto") fallbackCount++;
+      if (lines.some((line) => line.length > style.wordsPerLine)) longPlain++;
+      events.push({ start: caption.start, end: caption.end, lines, activeWord: null, fontSize: fitSize(lines, style.size, safeWidth) });
+      continue;
+    }
+    wordTimedCaptions++;
+    const blocks = wordBlocks(caption.words, style, safeWidth);
+    blocks.forEach((block, index) => {
+      const first = block.words[0], last = block.words.at(-1);
+      const start = index === 0 ? caption.start : first.start;
+      const next = blocks[index + 1];
+      const end = next ? next.words[0].start : caption.end;
+      const fontSize = fitSize(block.lines, style.size, safeWidth);
+      const add = (from, to, activeWord) => {
+        if (to > from) events.push({ start: from, end: to, lines: block.lines, activeWord, fontSize });
+      };
+      let cursor = start;
+      block.words.forEach((word, activeWord) => {
+        add(cursor, word.start, null);
+        add(word.start, word.end, activeWord);
+        cursor = word.end;
+      });
+      add(last.end, end, null);
+    });
+  }
+  if (fallbackCount) warnings.push(`${fallbackCount} caption(s) have no word timings: rendered whole phrases without estimated word highlights.`);
+  if (longPlain) warnings.push(`${longPlain} plain caption(s) exceed the word limit: kept the complete phrase at its supplied times, reduced font size and used at most ${style.lines} lines.`);
+  const header = `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${project.format.width}
+PlayResY: ${project.format.height}
+ScaledBorderAndShadow: yes
+WrapStyle: 2
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Reels,${style.font},${style.size},&H00${style.color},&H00${style.active},&H00${style.outlineColor},&H00000000,${style.bold},0,0,0,100,100,0,0,1,${style.outline},0,2,${style.marginSide},${style.marginSide},${style.marginBottom},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+  const dialogue = events.filter((event) => Math.round(event.end * 100) > Math.round(event.start * 100)).map((event) => {
+    let wordIndex = 0;
+    const text = event.lines.map((line) => line.map((word) => {
+      const current = wordIndex++, escaped = escapeAssText(word);
+      return current === event.activeWord ? `{\\1c&H${style.active}&}${escaped}{\\1c&H${style.color}&}` : escaped;
+    }).join(" ")).join("\\N");
+    return `Dialogue: 0,${timestamp(event.start)},${timestamp(event.end)},Reels,,0,0,0,,{\\q2\\fs${event.fontSize}}${text}`;
+  }).join("\n");
+  return { ass: header + dialogue + "\n", events, captionTiming: { wordTimedCaptions, totalCaptions: project.captions.length, warnings } };
+}
+var init_captions = __esm({
+  "plugins/invokard-studio/src/captions.ts"() {
+    "use strict";
+  }
+});
+
 // plugins/invokard-studio/src/media.ts
 var media_exports = {};
 __export(media_exports, {
@@ -4222,7 +4383,16 @@ async function findTool(name) {
 }
 async function doctorMedia() {
   const [ffmpeg2, ffprobe] = await Promise.all([findTool("ffmpeg"), findTool("ffprobe")]);
-  return { ready: ffmpeg2.available && ffprobe.available, ffmpeg: ffmpeg2, ffprobe };
+  const captions = await captionCapability(ffmpeg2.path);
+  return { ready: ffmpeg2.available && ffprobe.available && captions.available, ffmpeg: ffmpeg2, ffprobe, captions };
+}
+async function captionCapability(executable) {
+  let available = false;
+  if (executable) try {
+    available = /\bass\s+V->V\b/.test(await execute(executable, ["-hide_banner", "-filters"], { timeout: 1e4 }));
+  } catch {
+  }
+  return { available, renderer: "libass", ...available ? {} : { error: "Styled captions require the FFmpeg ass/libass filter. Run the plugin scripts/setup.mjs --install-tools command, or select a full FFmpeg build with libass using FFMPEG_PATH." } };
 }
 async function requireTool(name) {
   const found = await findTool(name);
@@ -4402,6 +4572,7 @@ function frameFit(project) {
 async function renderVideo(projectDir, project, options = {}) {
   checkAbort(options.signal);
   validateProject(project, true);
+  const captionTrack = buildCaptionTrack(project);
   const root = await realpath(projectDir);
   const probePath = await requireTool("ffprobe");
   const needed = [...project.scenes.map((s) => s.assetId), project.audio.voiceAssetId, project.audio.musicAssetId].filter((id2) => Boolean(id2));
@@ -4417,6 +4588,10 @@ async function renderVideo(projectDir, project, options = {}) {
   for (const id2 of [project.audio.voiceAssetId, project.audio.musicAssetId]) if (id2 && !assets.get(id2).info.streams.some((s) => s.codec_type === "audio")) throw new Error(`Audio asset ${id2} has no audio stream`);
   const executable = await requireTool("ffmpeg");
   checkAbort(options.signal);
+  if (project.captions.length) {
+    const captions = await captionCapability(executable);
+    if (!captions.available) throw new Error(captions.error);
+  }
   const output2 = await prepareExport(root);
   try {
     const font = await prepareFont(root, output2.work, project);
@@ -4468,13 +4643,8 @@ async function renderVideo(projectDir, project, options = {}) {
       audioFilters.push(`[${index}:a]aresample=48000,volume=${volume},apad,atrim=duration=${duration3},asetpts=PTS-STARTPTS[a${index}]`);
       audioLabels.push(`[a${index}]`);
     }
-    const captionFilters = [];
-    for (let i = 0; i < project.captions.length; i++) {
-      const caption = project.captions[i];
-      captionFilters.push(await textFilter(output2.work, `caption-${i}`, caption.text, { font, size: Math.round(width * 0.047), color: project.brand.color, x: "(w-text_w)/2", y: "h*0.80-text_h/2", width: width * 0.82, box: true, enable: `gte(t,${caption.start})*lt(t,${caption.end})` }));
-    }
-    if (captionFilters.length) await writeFile(path.join(output2.work, "captions.ffgraph"), captionFilters.join(","));
-    const encode = ["-map", "0:v:0", ...captionFilters.length ? ["-filter_script:v", "captions.ffgraph", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p"] : ["-c:v", "copy"]];
+    await writeFile(path.join(output2.staging, "captions.ass"), captionTrack.ass, "utf8");
+    const encode = ["-map", "0:v:0", ...project.captions.length ? ["-vf", "ass=filename=../captions.ass:fontsdir=.", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p"] : ["-c:v", "copy"]];
     if (audioLabels.length) {
       audioFilters.push(`${audioLabels.join("")}amix=inputs=${audioLabels.length}:duration=longest:normalize=0,alimiter=limit=0.95:level=false[audio]`);
       await writeFile(path.join(output2.work, "audio.ffgraph"), audioFilters.join(";"));
@@ -4492,7 +4662,7 @@ ${c.text.replace(/\r/g, "")}
     checkAbort(options.signal);
     await rm(output2.work, { recursive: true, force: true });
     await rename(output2.staging, output2.final);
-    return { video: path.join(output2.final, "reel.mp4"), subtitles: path.join(output2.final, "captions.srt"), poster: path.join(output2.final, "cover.png"), copy: path.join(output2.final, "caption.md") };
+    return { video: path.join(output2.final, "reel.mp4"), subtitles: path.join(output2.final, "captions.srt"), styledSubtitles: path.join(output2.final, "captions.ass"), captionTiming: captionTrack.captionTiming, poster: path.join(output2.final, "cover.png"), copy: path.join(output2.final, "caption.md") };
   } catch (error2) {
     await rm(output2.staging, { recursive: true, force: true }).catch(() => {
     });
@@ -4550,6 +4720,7 @@ var allowedExtensions, demuxers, inputSafety, abortError;
 var init_media = __esm({
   "plugins/invokard-studio/src/media.ts"() {
     "use strict";
+    init_captions();
     allowedExtensions = /* @__PURE__ */ new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif", ".heic", ".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".opus"]);
     demuxers = "mov,matroska,webm,avi,wav,mp3,aac,ogg,flac,png_pipe,jpeg_pipe,webp_pipe,gif,bmp_pipe,tiff_pipe";
     inputSafety = ["-protocol_whitelist", "file,pipe", "-format_whitelist", demuxers];
@@ -4646,7 +4817,7 @@ function parseSrt(srt) {
     return { start: stamp(...match.slice(1, 5)), end: stamp(...match.slice(5, 9)), text: lines.join("\n") };
   }));
 }
-var id, color2, nonempty, sceneSchema, captionSchema, captionsSchema, sourceSchema, slidesSchema, projectSchema, patchSchema, queue, ProjectStore;
+var id, color2, nonempty, sceneSchema, captionWordSchema, normalizedCaption, captionSchema, captionStyleSchema, captionsSchema, sourceSchema, slidesSchema, projectSchema, patchSchema, queue, ProjectStore;
 var init_project = __esm({
   "plugins/invokard-studio/src/project.ts"() {
     "use strict";
@@ -4655,7 +4826,28 @@ var init_project = __esm({
     color2 = external_exports.string().regex(/^#[0-9a-fA-F]{6}$/, "Use a six digit hex color");
     nonempty = external_exports.string().trim().min(1);
     sceneSchema = external_exports.object({ id, assetId: id.optional(), duration: external_exports.number().positive().max(300), trimStart: external_exports.number().min(0).optional(), audioVolume: external_exports.number().min(0).max(2).optional(), text: external_exports.string().max(2e3).optional(), background: color2.optional(), motion: external_exports.enum(["none", "zoom"]).optional() }).strict();
-    captionSchema = external_exports.object({ start: external_exports.number().min(0), end: external_exports.number().positive(), text: nonempty.max(4e3) }).strict();
+    captionWordSchema = external_exports.object({ start: external_exports.number().finite().min(0), end: external_exports.number().finite().positive(), text: nonempty.max(160).refine((value) => !/\s/u.test(value), "Each word must be a single word with attached punctuation") }).strict();
+    normalizedCaption = (value) => value.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+    captionSchema = external_exports.object({ start: external_exports.number().finite().min(0), end: external_exports.number().finite().positive(), text: nonempty.max(4e3), words: external_exports.array(captionWordSchema).min(1).max(500).optional() }).strict().superRefine((caption, ctx) => {
+      if (!caption.words) return;
+      caption.words.forEach((word, i) => {
+        if (word.end <= word.start || word.start < caption.start - 1e-3 || word.end > caption.end + 1e-3 || i > 0 && word.start < caption.words[i - 1].end - 1e-3)
+          ctx.addIssue({ code: "custom", message: "Word timing must be ordered, non-overlapping and inside its caption", path: ["words", i] });
+      });
+      if (normalizedCaption(caption.words.map((w) => w.text).join(" ")) !== normalizedCaption(caption.text)) ctx.addIssue({ code: "custom", message: "Word text must match the caption text", path: ["words"] });
+    });
+    captionStyleSchema = external_exports.object({
+      mode: external_exports.enum(["auto", "word", "plain"]).optional(),
+      fontSize: external_exports.number().finite().min(16).max(240).optional(),
+      color: color2.optional(),
+      activeColor: color2.optional(),
+      outlineColor: color2.optional(),
+      outlineWidth: external_exports.number().finite().min(0).max(12).optional(),
+      bold: external_exports.boolean().optional(),
+      maxWordsPerLine: external_exports.number().int().min(1).max(8).optional(),
+      maxLines: external_exports.number().int().min(1).max(3).optional(),
+      marginBottom: external_exports.number().finite().min(0.08).max(0.45).optional()
+    }).strict();
     captionsSchema = external_exports.array(captionSchema).max(500).superRefine((items, ctx) => {
       items.forEach((c, i) => {
         if (c.end <= c.start || i > 0 && c.start < items[i - 1].end) ctx.addIssue({ code: "custom", message: "Caption timing must be ordered, non-overlapping, with end after start", path: [i] });
@@ -4674,12 +4866,13 @@ var init_project = __esm({
       assets: external_exports.array(external_exports.object({ id, kind: external_exports.enum(["image", "video", "audio"]), path: nonempty, source: sourceSchema.optional() }).strict()).max(1e3),
       scenes: external_exports.array(sceneSchema).max(200),
       captions: captionsSchema,
+      captionStyle: captionStyleSchema.optional(),
       carousel: slidesSchema.optional(),
       brand: external_exports.object({ background: color2, color: color2, accent: color2, fontFamily: nonempty.max(80), fontFile: external_exports.string().optional() }).strict(),
       audio: external_exports.object({ voiceAssetId: id.optional(), musicAssetId: id.optional(), musicVolume: external_exports.number().min(0).max(2), voiceVolume: external_exports.number().min(0).max(2) }).strict(),
       copy: external_exports.object({ caption: external_exports.string().max(2e4), hashtags: external_exports.array(external_exports.string().max(100)).max(100) }).strict()
     }).strict();
-    patchSchema = projectSchema.pick({ title: true, script: true, format: true, scenes: true, captions: true, carousel: true, brand: true, audio: true, copy: true }).partial().strict();
+    patchSchema = projectSchema.pick({ title: true, script: true, format: true, scenes: true, captions: true, captionStyle: true, carousel: true, brand: true, audio: true, copy: true }).partial().strict();
     queue = /* @__PURE__ */ new Map();
     ProjectStore = class {
       root;
@@ -5131,11 +5324,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants);
+          this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -5152,10 +5345,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants);
+        this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -5216,8 +5409,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants) {
-        this.code = optimizeExpr(this.code, names, constants);
+      optimizeNames(names, constants2) {
+        this.code = optimizeExpr(this.code, names, constants2);
         return this;
       }
       get names() {
@@ -5246,12 +5439,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         const { nodes } = this;
         let i = nodes.length;
         while (i--) {
           const n = nodes[i];
-          if (n.optimizeNames(names, constants))
+          if (n.optimizeNames(names, constants2))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i, 1);
@@ -5304,12 +5497,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a;
-        this.else = (_a = this.else) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants);
-        if (!(super.optimizeNames(names, constants) || this.else))
+        this.else = (_a = this.else) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants2);
+        if (!(super.optimizeNames(names, constants2) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants);
+        this.condition = optimizeExpr(this.condition, names, constants2);
         return this;
       }
       get names() {
@@ -5332,10 +5525,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants);
+        this.iteration = optimizeExpr(this.iteration, names, constants2);
         return this;
       }
       get names() {
@@ -5371,10 +5564,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants) {
-        if (!super.optimizeNames(names, constants))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants);
+        this.iterable = optimizeExpr(this.iterable, names, constants2);
         return this;
       }
       get names() {
@@ -5416,11 +5609,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants) {
+      optimizeNames(names, constants2) {
         var _a, _b;
-        super.optimizeNames(names, constants);
-        (_a = this.catch) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants);
+        super.optimizeNames(names, constants2);
+        (_a = this.catch) === null || _a === void 0 ? void 0 : _a.optimizeNames(names, constants2);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants2);
         return this;
       }
       get names() {
@@ -5721,7 +5914,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants) {
+    function optimizeExpr(expr, names, constants2) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -5736,14 +5929,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants[n.str];
+        const c = constants2[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -8925,8 +9118,8 @@ var require_fast_uri = __commonJS({
       } catch {
         return void 0;
       }
-      const { normalized, malformedAuthorityOrPort, malformedPercentEncoding, malformedSchemeSpecific, malformedHost, malformedScheme } = normalizeStringWithStatus(value, opts);
-      return malformedAuthorityOrPort || malformedPercentEncoding || malformedSchemeSpecific || malformedHost || malformedScheme ? void 0 : normalized;
+      const { normalized: normalized2, malformedAuthorityOrPort, malformedPercentEncoding, malformedSchemeSpecific, malformedHost, malformedScheme } = normalizeStringWithStatus(value, opts);
+      return malformedAuthorityOrPort || malformedPercentEncoding || malformedSchemeSpecific || malformedHost || malformedScheme ? void 0 : normalized2;
     }
     var fastUri = {
       SCHEMES,
@@ -11920,6 +12113,336 @@ var require_dist = __commonJS({
   }
 });
 
+// plugins/invokard-studio/src/transcription.ts
+var transcription_exports = {};
+__export(transcription_exports, {
+  addWhisperWordTimings: () => addWhisperWordTimings,
+  dtwModels: () => dtwModels,
+  parseFasterWhisper: () => parseFasterWhisper,
+  transcribe: () => transcribe,
+  transcriptionStatus: () => transcriptionStatus
+});
+import childProcess from "node:child_process";
+import { copyFile as copyFile3, link as link2, mkdir as mkdir5, mkdtemp as mkdtemp2, readFile as readFile4, realpath as realpath5, rename as rename4, rm as rm2, stat as stat3, unlink as unlink3, writeFile as writeFile3 } from "node:fs/promises";
+import { constants } from "node:fs";
+import path2 from "node:path";
+import { randomUUID as randomUUID5 } from "node:crypto";
+import { fileURLToPath } from "node:url";
+function transcriptionStatus() {
+  const faster = Boolean(process.env.FASTER_WHISPER_PYTHON_PATH && process.env.FASTER_WHISPER_MODEL_PATH);
+  const cpp = Boolean(process.env.WHISPER_CPP_PATH && process.env.WHISPER_MODEL_PATH);
+  return {
+    configured: faster || cpp,
+    preferredEngine: faster ? "faster-whisper" : cpp ? "whisper.cpp" : null,
+    verified: false,
+    backends: {
+      "faster-whisper": { configured: faster, requiredEnv: ["FASTER_WHISPER_PYTHON_PATH", "FASTER_WHISPER_MODEL_PATH"] },
+      "whisper.cpp": { configured: cpp, requiredEnv: ["WHISPER_CPP_PATH", "WHISPER_MODEL_PATH"] }
+    },
+    note: "Configuration presence only; dependencies and model are verified when transcription runs."
+  };
+}
+function offsets(value) {
+  if (!object4(value) || !object4(value.offsets)) return;
+  const { from, to } = value.offsets;
+  if (typeof from !== "number" || typeof to !== "number" || !Number.isFinite(from) || !Number.isFinite(to)) return;
+  return { start: from / 1e3, end: to / 1e3 };
+}
+function segmentWords(segment, caption, duration3) {
+  if (!object4(segment) || typeof segment.text !== "string") throw new Error("Missing JSON segment text");
+  const span = offsets(segment);
+  if (!span || Math.abs(span.start - caption.start) > 1e-3 || Math.abs(span.end - caption.end) > 1e-3 || normalizedText(segment.text) !== normalizedText(caption.text)) throw new Error("JSON segment does not match the SRT phrase");
+  if (!Array.isArray(segment.tokens) || !segment.tokens.length || segment.tokens.length > 1e4) throw new Error("No supported token timing data");
+  let text = "";
+  const tokens = [];
+  for (const token of segment.tokens) {
+    if (!object4(token) || typeof token.text !== "string") throw new Error("Invalid token text");
+    if (/^\s*(?:\[_[^\]]+\]|<\|[^|]+\|>)\s*$/u.test(token.text)) continue;
+    const from = text.length;
+    text += token.text;
+    tokens.push({ text: token.text, from, to: text.length, timing: offsets(token) });
+  }
+  if (normalizedText(text) !== normalizedText(caption.text)) throw new Error("Tokens do not reconstruct the phrase text");
+  const groups = [...text.matchAll(/\S+/gu)];
+  if (!groups.length) throw new Error("No lexical words");
+  const words = [];
+  let previousEnd = caption.start;
+  for (const group of groups) {
+    const wordText = group[0], from = group.index, to = from + wordText.length;
+    if (!lexical(wordText)) throw new Error("Standalone punctuation has no spoken word interval");
+    const parts = tokens.filter((token) => token.from < to && token.to > from && lexical(token.text));
+    if (!parts.length) throw new Error("Word has no lexical token timing");
+    let start, end;
+    for (const token of parts) {
+      if (token.text.trim().split(/\s+/u).filter(lexical).length > 1) throw new Error("One token spans multiple words; independent times are unavailable");
+      const timing = token.timing;
+      if (!timing || timing.start < 0 || timing.end < timing.start || timing.start < caption.start - 1e-3 || timing.end > caption.end + 1e-3 || timing.end > duration3 + 1e-3) throw new Error("Lexical token timing is missing, reversed or outside the phrase/source range");
+      if (end !== void 0 && timing.start < end - 1e-3) throw new Error("Lexical token times overlap or run backwards");
+      start ??= timing.start;
+      end = timing.end;
+    }
+    if (end <= start) throw new Error("Word interval is empty; no independent duration is available");
+    if (start < previousEnd - 1e-3) throw new Error("Word times overlap or run backwards");
+    words.push({ start, end, text: wordText });
+    previousEnd = end;
+  }
+  return words;
+}
+function addWhisperWordTimings(captions, json, duration3, unavailableReason) {
+  const timing = { basis: "source_asset_seconds", engine: "whisper.cpp", source: "whisper.cpp-token-offsets", method: "heuristic-token-offsets", wordTiming: "unavailable", timedCaptions: 0, totalCaptions: captions.length, limitations: ["whisper.cpp token offsets are heuristic estimates; enabling DTW does not replace them. Complete word coverage does not establish acoustic synchronization: listen and review before word highlighting."] };
+  const segments = object4(json) && Array.isArray(json.transcription) ? json.transcription : void 0;
+  if (unavailableReason || !segments || segments.length !== captions.length) {
+    timing.limitations.push(unavailableReason || "Whisper JSON segment count does not match the SRT; word timing is unavailable.");
+    return { captions, timing };
+  }
+  const result = captions.map((caption, index) => {
+    try {
+      const words = segmentWords(segments[index], caption, duration3);
+      timing.timedCaptions++;
+      return { ...caption, words };
+    } catch (error2) {
+      timing.limitations.push(`Caption ${index + 1}: ${error2 instanceof Error ? error2.message : String(error2)}. Phrase retained without word times.`);
+      return caption;
+    }
+  });
+  timing.wordTiming = timing.timedCaptions === captions.length && captions.length > 0 ? "complete" : timing.timedCaptions > 0 ? "partial" : "unavailable";
+  if (!captions.length) timing.limitations.push("No recognized speech; there are no word times.");
+  return { captions: result, timing };
+}
+function parseFasterWhisper(json, duration3) {
+  if (!object4(json) || json.engine !== "faster-whisper" || !Array.isArray(json.segments)) throw new Error("Invalid faster-whisper JSON: missing engine or segments");
+  const segments = json.segments;
+  const captions = captionsSchema.parse(segments.map((segment) => {
+    if (!object4(segment) || typeof segment.text !== "string") throw new Error("Invalid faster-whisper JSON segment");
+    return { start: segment.start, end: segment.end, text: segment.text.trim() };
+  }));
+  if (captions.some((caption) => caption.end > duration3 + 1e-3)) throw new Error("faster-whisper phrase times exceed the source audio duration");
+  const timing = { basis: "source_asset_seconds", engine: "faster-whisper", source: "faster-whisper-word-timestamps", method: "cross-attention-dtw-silero-vad", wordTiming: "unavailable", timedCaptions: 0, totalCaptions: captions.length, limitations: ["Word times use cross-attention DTW, native postprocessing and Silero VAD. They are model estimates; review synchronization by listening before final export."] };
+  const result = captions.map((caption, index) => {
+    try {
+      const raw = segments[index].words;
+      if (!Array.isArray(raw) || !raw.length || raw.length > 1e4) throw new Error("Missing supported word timing data");
+      let lastEnd = caption.start;
+      const words = raw.map((word) => {
+        if (!object4(word) || typeof word.word !== "string" || !word.word.trim() || /\s/u.test(word.word.trim())) throw new Error("Invalid individual word text");
+        const { start, end } = word;
+        if (typeof start !== "number" || typeof end !== "number" || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || start < lastEnd - 1e-3 || end > caption.end + 1e-3) throw new Error("Missing, overlapping or out-of-range word timing");
+        lastEnd = end;
+        return { start, end, text: word.word.trim() };
+      });
+      if (normalizedText(words.map((word) => word.text).join(" ")) !== normalizedText(caption.text)) throw new Error("Word text does not reconstruct the phrase");
+      timing.timedCaptions++;
+      return { ...caption, words };
+    } catch (error2) {
+      timing.limitations.push(`Caption ${index + 1}: ${error2 instanceof Error ? error2.message : String(error2)}. Phrase retained without word times.`);
+      return caption;
+    }
+  });
+  timing.wordTiming = timing.timedCaptions === captions.length && captions.length > 0 ? "complete" : timing.timedCaptions > 0 ? "partial" : "unavailable";
+  if (!captions.length) timing.limitations.push("No recognized speech; there are no word times.");
+  return { captions: result, timing };
+}
+function srtTime2(seconds) {
+  const ms = Math.round(seconds * 1e3);
+  return `${String(Math.floor(ms / 36e5)).padStart(2, "0")}:${String(Math.floor(ms / 6e4) % 60).padStart(2, "0")}:${String(Math.floor(ms / 1e3) % 60).padStart(2, "0")},${String(ms % 1e3).padStart(3, "0")}`;
+}
+function checkAbort2(signal) {
+  if (signal?.aborted) throw cancelled();
+}
+function inside2(root, file) {
+  const rel = path2.relative(root, file);
+  return rel !== ".." && !rel.startsWith(`..${path2.sep}`) && !path2.isAbsolute(rel);
+}
+async function run(executable, args, cwd, signal, timeout = 72e5) {
+  checkAbort2(signal);
+  return new Promise((resolve5, reject) => {
+    const child = childProcess.spawn(executable, args, { cwd, shell: false, windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "", timedOut = false, settled = false;
+    const kill = () => child.kill("SIGKILL");
+    const timer = setTimeout(() => {
+      timedOut = true;
+      kill();
+    }, timeout);
+    const clean = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", kill);
+    };
+    signal?.addEventListener("abort", kill, { once: true });
+    if (signal?.aborted) kill();
+    child.stderr?.on("data", (data) => {
+      stderr = (stderr + data).slice(-8e3);
+    });
+    child.once("error", (error2) => {
+      if (!settled) {
+        settled = true;
+        clean();
+        reject(new Error(`Cannot launch transcription dependency: ${error2.message}`));
+      }
+    });
+    child.once("close", (code2) => {
+      if (settled) return;
+      settled = true;
+      clean();
+      if (signal?.aborted) reject(cancelled());
+      else if (timedOut) reject(new Error("Transcription process timed out"));
+      else if (code2 !== 0) reject(new Error(`Transcription dependency failed (${code2}): ${stderr.trim()}`));
+      else resolve5();
+    });
+  });
+}
+async function dependency(file, variable) {
+  if (!path2.isAbsolute(file) || /^https?:/i.test(file) || file.startsWith("\\\\") || file.startsWith("//")) throw new Error(`${variable} must point to an absolute local file path`);
+  try {
+    const canonical2 = await realpath5(file);
+    const info = await stat3(canonical2);
+    if (!info.isFile() || info.size === 0) throw new Error("empty");
+    return canonical2;
+  } catch {
+    throw new Error(`${variable} does not identify a readable, non-empty local file. Configure the optional transcription runtime and compatible model.`);
+  }
+}
+async function modelDirectory(file) {
+  if (!path2.isAbsolute(file) || /^https?:/i.test(file) || file.startsWith("\\\\") || file.startsWith("//")) throw new Error("FASTER_WHISPER_MODEL_PATH must identify an absolute local model directory; model names and URLs cannot trigger downloads");
+  try {
+    const canonical2 = await realpath5(file);
+    if (!(await stat3(canonical2)).isDirectory()) throw new Error("not a directory");
+    await Promise.all(["model.bin", "config.json", "tokenizer.json"].map((name) => dependency(path2.join(canonical2, name), `FASTER_WHISPER_MODEL_PATH/${name}`)));
+    return canonical2;
+  } catch {
+    throw new Error("FASTER_WHISPER_MODEL_PATH must identify a readable local CTranslate2 model directory containing model.bin, config.json and tokenizer.json");
+  }
+}
+async function transcribe(projectDir, project, assetId, options = {}) {
+  checkAbort2(options.signal);
+  if (options.engine !== void 0 && !["auto", "faster-whisper", "whisper.cpp"].includes(options.engine)) throw new Error("Transcription engine must be auto, faster-whisper, or whisper.cpp");
+  const engine = options.engine && options.engine !== "auto" ? options.engine : transcriptionStatus().preferredEngine || "whisper.cpp";
+  const language = options.language || "auto";
+  if (!/^(?:auto|[a-z]{2,3})$/.test(language)) throw new Error("Transcription language must be a lowercase language code such as es, en, or auto");
+  if (options.dtwModel !== void 0 && !dtwModels.includes(options.dtwModel)) throw new Error("DTW alignment must use a supported whisper.cpp model preset matching the installed model");
+  if (options.prompt !== void 0 && (typeof options.prompt !== "string" || options.prompt.length > 2e3 || options.prompt.includes("\0"))) throw new Error("Transcription prompt context must be text of at most 2000 characters without NUL");
+  const prompt = options.prompt?.replace(/\s+/gu, " ").trim();
+  const root = await realpath5(projectDir), asset = project.assets.find((item) => item.id === assetId);
+  if (!asset || !["audio", "video"].includes(asset.kind)) throw new Error("Transcription requires an imported audio or video asset");
+  if (!asset.path || asset.path.includes("\0") || asset.path.includes(":") || path2.isAbsolute(asset.path) || path2.win32.isAbsolute(asset.path) || asset.path.split(/[\\/]/).includes("..")) throw new Error("Asset path must be local, relative and inside the project; URLs are not allowed");
+  const input = await realpath5(path2.resolve(root, asset.path));
+  if (!inside2(root, input)) throw new Error("Asset path resolves outside the project");
+  let executable, model;
+  if (engine === "faster-whisper") {
+    if (!process.env.FASTER_WHISPER_PYTHON_PATH || !process.env.FASTER_WHISPER_MODEL_PATH) throw new Error("Local faster-whisper is not configured. Set FASTER_WHISPER_PYTHON_PATH to a Python environment with the pinned transcription requirements and FASTER_WHISPER_MODEL_PATH to an already downloaded local CTranslate2 model directory.");
+    [executable, model] = await Promise.all([dependency(process.env.FASTER_WHISPER_PYTHON_PATH, "FASTER_WHISPER_PYTHON_PATH"), modelDirectory(process.env.FASTER_WHISPER_MODEL_PATH)]);
+  } else {
+    if (!process.env.WHISPER_CPP_PATH || !process.env.WHISPER_MODEL_PATH) throw new Error("Optional local transcription is not configured. Set FASTER_WHISPER_PYTHON_PATH and FASTER_WHISPER_MODEL_PATH for faster-whisper, or WHISPER_CPP_PATH and WHISPER_MODEL_PATH for whisper.cpp.");
+    [executable, model] = await Promise.all([dependency(process.env.WHISPER_CPP_PATH, "WHISPER_CPP_PATH"), dependency(process.env.WHISPER_MODEL_PATH, "WHISPER_MODEL_PATH")]);
+  }
+  const info = await inspectMedia(input);
+  if (!info.streams.some((stream) => stream.codec_type === "audio")) throw new Error("Selected asset contains no audio stream to transcribe");
+  const duration3 = Number(info.format.duration);
+  if (!Number.isFinite(duration3) || duration3 <= 0 || duration3 > 7200) throw new Error("Transcription requires an audio duration between zero and two hours");
+  const media = await doctorMedia();
+  if (!media.ffmpeg.available || !media.ffmpeg.path || !media.ffprobe.available || !media.ffprobe.path) throw new Error(media.ffmpeg.error || media.ffprobe.error || "FFmpeg and ffprobe are required for audio decoding and transcription");
+  checkAbort2(options.signal);
+  const exportsRoot = path2.join(root, "exports");
+  await mkdir5(exportsRoot, { recursive: true });
+  if (!inside2(root, await realpath5(exportsRoot))) throw new Error("Exports path resolves outside the project");
+  const staging = await mkdtemp2(path2.join(exportsRoot, ".transcription-"));
+  const final = path2.join(exportsRoot, `transcription-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}-${randomUUID5().slice(0, 8)}`);
+  try {
+    await run(media.ffmpeg.path, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,matroska,webm,avi,wav,mp3,aac,ogg,flac", "-i", input, "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "audio.wav"], staging, options.signal, 6e5);
+    if (engine === "faster-whisper") {
+      const runner = fileURLToPath(new URL("../runtime/faster-whisper.py", import.meta.url));
+      await writeFile3(path2.join(staging, "request.json"), JSON.stringify({ input: "audio.wav", output: "transcript.json", model, language, prompt: prompt || null }), "utf8");
+      await run(executable, [runner, "--config", "request.json"], staging, options.signal);
+      const jsonPath2 = path2.join(staging, "transcript.json");
+      if ((await stat3(jsonPath2)).size > 3e7) throw new Error("faster-whisper JSON output exceeds the supported size");
+      let json2;
+      try {
+        json2 = JSON.parse(await readFile4(jsonPath2, "utf8"));
+      } catch {
+        throw new Error("Invalid JSON returned by faster-whisper");
+      }
+      const result = parseFasterWhisper(json2, duration3);
+      await writeFile3(path2.join(staging, "transcript.srt"), result.captions.map((caption, index) => `${index + 1}
+${srtTime2(caption.start)} --> ${srtTime2(caption.end)}
+${caption.text}
+`).join("\n"), "utf8");
+      checkAbort2(options.signal);
+      await unlink3(path2.join(staging, "audio.wav"));
+      await unlink3(path2.join(staging, "request.json"));
+      await rename4(staging, final);
+      return { ...result, srt: path2.join(final, "transcript.srt"), json: path2.join(final, "transcript.json") };
+    }
+    let modelArgument = model;
+    if (process.platform === "win32") {
+      const localModel = path2.join(staging, "model.bin");
+      try {
+        await link2(model, localModel);
+      } catch (error2) {
+        if (!["EXDEV", "EPERM", "EACCES", "ENOTSUP"].includes(error2.code || "")) throw error2;
+        await copyFile3(model, localModel, constants.COPYFILE_EXCL);
+      }
+      modelArgument = "model.bin";
+      checkAbort2(options.signal);
+    }
+    const args = ["-m", modelArgument, "-f", "audio.wav", "-l", language, "-osrt", "-ojf", "-ml", "60", "-sow", "-of", "transcript"];
+    if (options.dtwModel) args.push("-dtw", options.dtwModel, "-nfa");
+    if (prompt) args.push("--prompt", prompt);
+    const responseFile = process.platform === "win32" && args.some((arg) => /[^\x00-\x7f]/u.test(arg));
+    if (responseFile) await writeFile3(path2.join(staging, "arguments.txt"), args.join("\n") + "\n", "utf8");
+    await run(executable, responseFile ? ["@arguments.txt"] : args, staging, options.signal);
+    const srtPath = path2.join(staging, "transcript.srt");
+    if ((await stat3(srtPath)).size > 1e7) throw new Error("Transcription SRT output exceeds the supported size");
+    const contents = await readFile4(srtPath, "utf8");
+    let captions;
+    try {
+      captions = parseSrt(contents);
+    } catch (error2) {
+      throw new Error(`Invalid SRT returned by whisper.cpp: ${error2 instanceof Error ? error2.message : String(error2)}`);
+    }
+    if (captions.some((caption) => caption.end > duration3 + 0.25)) throw new Error("Transcription caption times exceed the source audio duration");
+    const jsonPath = path2.join(staging, "transcript.json");
+    let json, jsonExists = false, unavailableReason;
+    try {
+      const jsonInfo = await stat3(jsonPath);
+      jsonExists = true;
+      if (jsonInfo.size > 3e7) unavailableReason = "Whisper JSON exceeds 30 MB; word timing is unavailable.";
+      else {
+        try {
+          json = JSON.parse(await readFile4(jsonPath, "utf8"));
+        } catch {
+          unavailableReason = "Whisper JSON is malformed or unreadable; word timing is unavailable.";
+        }
+      }
+    } catch (error2) {
+      if (error2.code !== "ENOENT") throw error2;
+      unavailableReason = "Whisper JSON was not produced; use a whisper.cpp version supporting -ojf. Word timing is unavailable.";
+    }
+    const enriched = addWhisperWordTimings(captions, json, duration3, unavailableReason);
+    checkAbort2(options.signal);
+    await unlink3(path2.join(staging, "audio.wav"));
+    if (modelArgument === "model.bin") await unlink3(path2.join(staging, "model.bin"));
+    if (responseFile) await unlink3(path2.join(staging, "arguments.txt"));
+    await rename4(staging, final);
+    return { ...enriched, srt: path2.join(final, "transcript.srt"), ...jsonExists ? { json: path2.join(final, "transcript.json") } : {} };
+  } catch (error2) {
+    await rm2(staging, { recursive: true, force: true }).catch(() => {
+    });
+    throw error2;
+  }
+}
+var dtwModels, object4, normalizedText, lexical, cancelled;
+var init_transcription = __esm({
+  "plugins/invokard-studio/src/transcription.ts"() {
+    "use strict";
+    init_media();
+    init_project();
+    dtwModels = ["tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en", "large.v1", "large.v2", "large.v3", "large.v3.turbo"];
+    object4 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+    normalizedText = (text) => text.replace(/\s+/gu, " ").trim();
+    lexical = (text) => /[\p{L}\p{N}\p{M}]/u.test(text);
+    cancelled = () => Object.assign(new Error("Transcription cancelled"), { name: "AbortError" });
+  }
+});
+
 // plugins/invokard-studio/src/download.ts
 var download_exports = {};
 __export(download_exports, {
@@ -11930,8 +12453,8 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
 import { createWriteStream } from "node:fs";
-import { lstat as lstat4, mkdir as mkdir5, realpath as realpath5, unlink as unlink3 } from "node:fs/promises";
-import { randomUUID as randomUUID5 } from "node:crypto";
+import { lstat as lstat4, mkdir as mkdir6, realpath as realpath6, unlink as unlink4 } from "node:fs/promises";
+import { randomUUID as randomUUID6 } from "node:crypto";
 import { extname as extname2, join as join4, resolve as resolve3 } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -11971,14 +12494,14 @@ function extension(url, headers, kind) {
   return ext;
 }
 async function tempDirectory(projectDir) {
-  const root = await realpath5(resolve3(projectDir)), directory = join4(root, ".downloads");
+  const root = await realpath6(resolve3(projectDir)), directory = join4(root, ".downloads");
   try {
-    await mkdir5(directory, { mode: 448 });
+    await mkdir6(directory, { mode: 448 });
   } catch (error2) {
     if (error2.code !== "EEXIST") throw error2;
   }
   const stat4 = await lstat4(directory);
-  if (!stat4.isDirectory() || stat4.isSymbolicLink() || await realpath5(directory) !== directory) throw new DownloadError("Download directory cannot be a symlink or junction.");
+  if (!stat4.isDirectory() || stat4.isSymbolicLink() || await realpath6(directory) !== directory) throw new DownloadError("Download directory cannot be a symlink or junction.");
   return directory;
 }
 async function abortable(promise, signal) {
@@ -12054,7 +12577,7 @@ function createDownloader(dependencies = {}) {
         const ext = extension(url, response.headers, kind);
         const declared = response.headers["content-length"];
         if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) throw new DownloadError("Media response exceeds the download size limit.");
-        path3 = join4(directory, `${randomUUID5()}${ext}`);
+        path3 = join4(directory, `${randomUUID6()}${ext}`);
         let received = 0;
         const meter = new Transform({ transform(chunk, _encoding, callback) {
           received += chunk.length;
@@ -12066,7 +12589,7 @@ function createDownloader(dependencies = {}) {
       }
     } catch (error2) {
       response?.destroy();
-      if (path3) await unlink3(path3).catch(() => {
+      if (path3) await unlink4(path3).catch(() => {
       });
       if (error2 instanceof DownloadError) throw error2;
       throw new DownloadError("Media download failed or timed out.");
@@ -12106,126 +12629,6 @@ var init_download = __esm({
     DownloadError = class extends Error {
     };
     downloadToTemp = createDownloader();
-  }
-});
-
-// plugins/invokard-studio/src/transcription.ts
-var transcription_exports = {};
-__export(transcription_exports, {
-  transcribe: () => transcribe
-});
-import childProcess from "node:child_process";
-import { mkdir as mkdir6, mkdtemp as mkdtemp2, readFile as readFile4, realpath as realpath6, rename as rename4, rm as rm2, stat as stat3, unlink as unlink4 } from "node:fs/promises";
-import path2 from "node:path";
-import { randomUUID as randomUUID6 } from "node:crypto";
-function checkAbort2(signal) {
-  if (signal?.aborted) throw cancelled();
-}
-function inside2(root, file) {
-  const rel = path2.relative(root, file);
-  return rel !== ".." && !rel.startsWith(`..${path2.sep}`) && !path2.isAbsolute(rel);
-}
-async function run(executable, args, cwd, signal, timeout = 72e5) {
-  checkAbort2(signal);
-  return new Promise((resolve5, reject) => {
-    const child = childProcess.spawn(executable, args, { cwd, shell: false, windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
-    let stderr = "", timedOut = false, settled = false;
-    const kill = () => child.kill("SIGKILL");
-    const timer = setTimeout(() => {
-      timedOut = true;
-      kill();
-    }, timeout);
-    const clean = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", kill);
-    };
-    signal?.addEventListener("abort", kill, { once: true });
-    if (signal?.aborted) kill();
-    child.stderr?.on("data", (data) => {
-      stderr = (stderr + data).slice(-8e3);
-    });
-    child.once("error", (error2) => {
-      if (!settled) {
-        settled = true;
-        clean();
-        reject(new Error(`Cannot launch transcription dependency: ${error2.message}`));
-      }
-    });
-    child.once("close", (code2) => {
-      if (settled) return;
-      settled = true;
-      clean();
-      if (signal?.aborted) reject(cancelled());
-      else if (timedOut) reject(new Error("Transcription process timed out"));
-      else if (code2 !== 0) reject(new Error(`Transcription dependency failed (${code2}): ${stderr.trim()}`));
-      else resolve5();
-    });
-  });
-}
-async function dependency(file, variable) {
-  if (!path2.isAbsolute(file) || /^https?:/i.test(file) || file.startsWith("\\\\") || file.startsWith("//")) throw new Error(`${variable} must point to an absolute local file path`);
-  try {
-    const canonical2 = await realpath6(file);
-    const info = await stat3(canonical2);
-    if (!info.isFile() || info.size === 0) throw new Error("empty");
-    return canonical2;
-  } catch {
-    throw new Error(`${variable} does not identify a readable, non-empty file. Install whisper.cpp and its compatible GGML model, then configure the optional transcription dependencies.`);
-  }
-}
-async function transcribe(projectDir, project, assetId, options = {}) {
-  checkAbort2(options.signal);
-  const language = options.language || "auto";
-  if (!/^(?:auto|[a-z]{2,3})$/.test(language)) throw new Error("Transcription language must be a lowercase language code such as es, en, or auto");
-  const root = await realpath6(projectDir), asset = project.assets.find((item) => item.id === assetId);
-  if (!asset || !["audio", "video"].includes(asset.kind)) throw new Error("Transcription requires an imported audio or video asset");
-  if (!asset.path || asset.path.includes("\0") || asset.path.includes(":") || path2.isAbsolute(asset.path) || path2.win32.isAbsolute(asset.path) || asset.path.split(/[\\/]/).includes("..")) throw new Error("Asset path must be local, relative and inside the project; URLs are not allowed");
-  const input = await realpath6(path2.resolve(root, asset.path));
-  if (!inside2(root, input)) throw new Error("Asset path resolves outside the project");
-  if (!process.env.WHISPER_CPP_PATH || !process.env.WHISPER_MODEL_PATH) throw new Error("Optional local transcription is not configured. Install whisper.cpp, download a compatible GGML speech model, then set WHISPER_CPP_PATH to whisper-cli and WHISPER_MODEL_PATH to the model file.");
-  const [executable, model] = await Promise.all([dependency(process.env.WHISPER_CPP_PATH, "WHISPER_CPP_PATH"), dependency(process.env.WHISPER_MODEL_PATH, "WHISPER_MODEL_PATH")]);
-  const info = await inspectMedia(input);
-  if (!info.streams.some((stream) => stream.codec_type === "audio")) throw new Error("Selected asset contains no audio stream to transcribe");
-  const duration3 = Number(info.format.duration);
-  if (!Number.isFinite(duration3) || duration3 <= 0 || duration3 > 7200) throw new Error("Transcription requires an audio duration between zero and two hours");
-  const media = await doctorMedia();
-  if (!media.ready || !media.ffmpeg.path) throw new Error(media.ffmpeg.error || "FFmpeg and ffprobe are required for transcription");
-  checkAbort2(options.signal);
-  const exportsRoot = path2.join(root, "exports");
-  await mkdir6(exportsRoot, { recursive: true });
-  if (!inside2(root, await realpath6(exportsRoot))) throw new Error("Exports path resolves outside the project");
-  const staging = await mkdtemp2(path2.join(exportsRoot, ".transcription-"));
-  const final = path2.join(exportsRoot, `transcription-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}-${randomUUID6().slice(0, 8)}`);
-  try {
-    await run(media.ffmpeg.path, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-protocol_whitelist", "file,pipe", "-format_whitelist", "mov,matroska,webm,avi,wav,mp3,aac,ogg,flac", "-i", input, "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "audio.wav"], staging, options.signal, 6e5);
-    await run(executable, ["-m", model, "-f", "audio.wav", "-l", language, "-osrt", "-of", "transcript"], staging, options.signal);
-    const srtPath = path2.join(staging, "transcript.srt");
-    if ((await stat3(srtPath)).size > 1e7) throw new Error("Transcription SRT output exceeds the supported size");
-    const contents = await readFile4(srtPath, "utf8");
-    let captions;
-    try {
-      captions = parseSrt(contents);
-    } catch (error2) {
-      throw new Error(`Invalid SRT returned by whisper.cpp: ${error2 instanceof Error ? error2.message : String(error2)}`);
-    }
-    if (captions.some((caption) => caption.end > duration3 + 0.25)) throw new Error("Transcription caption times exceed the source audio duration");
-    checkAbort2(options.signal);
-    await unlink4(path2.join(staging, "audio.wav"));
-    await rename4(staging, final);
-    return { captions, srt: path2.join(final, "transcript.srt") };
-  } catch (error2) {
-    await rm2(staging, { recursive: true, force: true }).catch(() => {
-    });
-    throw error2;
-  }
-}
-var cancelled;
-var init_transcription = __esm({
-  "plugins/invokard-studio/src/transcription.ts"() {
-    "use strict";
-    init_media();
-    init_project();
-    cancelled = () => Object.assign(new Error("Transcription cancelled"), { name: "AbortError" });
   }
 });
 
@@ -12405,19 +12808,19 @@ function floatSafeRemainder2(val, step) {
   const stepInt = Number.parseInt(step.toFixed(decCount).replace(".", ""));
   return valInt % stepInt / 10 ** decCount;
 }
-function defineLazy(object4, key, getter) {
+function defineLazy(object5, key, getter) {
   const set = false;
-  Object.defineProperty(object4, key, {
+  Object.defineProperty(object5, key, {
     get() {
       if (!set) {
         const value = getter();
-        object4[key] = value;
+        object5[key] = value;
         return value;
       }
       throw new Error("cached value already set");
     },
     set(v) {
-      Object.defineProperty(object4, key, {
+      Object.defineProperty(object5, key, {
         value: v
         // configurable: true,
       });
@@ -13993,7 +14396,7 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
   });
   const generateFastpass = (shape) => {
     const doc = new Doc(["shape", "payload", "ctx"]);
-    const normalized = _normalized.value;
+    const normalized2 = _normalized.value;
     const parseStr = (key) => {
       const k = esc(key);
       return `shape[${k}]._zod.run({ value: input[${k}], issues: [] }, ctx)`;
@@ -14001,12 +14404,12 @@ var $ZodObject = /* @__PURE__ */ $constructor("$ZodObject", (inst, def) => {
     doc.write(`const input = payload.value;`);
     const ids = /* @__PURE__ */ Object.create(null);
     let counter = 0;
-    for (const key of normalized.keys) {
+    for (const key of normalized2.keys) {
       ids[key] = `key_${counter++}`;
     }
     doc.write(`const newResult = {}`);
-    for (const key of normalized.keys) {
-      if (normalized.optionalKeys.has(key)) {
+    for (const key of normalized2.keys) {
+      if (normalized2.optionalKeys.has(key)) {
         const id2 = ids[key];
         doc.write(`const ${id2} = ${parseStr(key)};`);
         const k = esc(key);
@@ -19210,11 +19613,11 @@ function parseMapDef(def, refs) {
 
 // node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@3.25.76/node_modules/zod-to-json-schema/dist/esm/parsers/nativeEnum.js
 function parseNativeEnumDef(def) {
-  const object4 = def.values;
+  const object5 = def.values;
   const actualKeys = Object.keys(def.values).filter((key) => {
-    return typeof object4[object4[key]] !== "number";
+    return typeof object5[object5[key]] !== "number";
   });
-  const actualValues = actualKeys.map((key) => object4[key]);
+  const actualValues = actualKeys.map((key) => object5[key]);
   const parsedTypes = Array.from(new Set(actualValues.map((values2) => typeof values2)));
   return {
     type: parsedTypes.length === 1 ? parsedTypes[0] === "string" ? "string" : "number" : ["string", "number"],
@@ -22894,6 +23297,7 @@ var pollMagnificMusic = defaultClient.pollMagnificMusic;
 var reconcileProviderJob = defaultClient.reconcileProviderJob;
 
 // plugins/invokard-studio/src/server.ts
+init_transcription();
 var projectId = external_exports.string().describe("ID returned by studio_create_project.");
 var provider = external_exports.enum(["higgsfield", "magnific"]);
 async function importSource(store2, id2, input) {
@@ -22910,7 +23314,7 @@ async function importSource(store2, id2, input) {
 function createServer(workspace2) {
   const store2 = new ProjectStore(workspace2);
   const jobs = new Jobs();
-  const server = new McpServer({ name: "invokard-studio", version: "0.1.0" }, { instructions: "Create and export social content locally. Read the production and scriptwriter skills. Ask users to choose providers only when generation is needed. Never request API secrets as tool arguments. Paid generations require approval for the specific generation. Import generated resources promptly, save the editable timeline, and reuse assets on edits." });
+  const server = new McpServer({ name: "invokard-studio", version: "0.2.0" }, { instructions: "Create and export social content locally. Read the production and scriptwriter skills. For social videos with speech, transcribe the actual audio and use large word-synchronized captions in word mode. Never fabricate word timestamps from sentence duration. Review recognition, punctuation, safe margins and active-word changes. Ask users to choose providers only when generation is needed. Never request API secrets as tool arguments. Paid generations require approval for the specific generation. Import generated resources promptly, save the editable timeline, and reuse assets on edits." });
   const tool = (name, description, shape, handler, readOnly = false) => {
     server.registerTool(name, { description, inputSchema: shape, annotations: { readOnlyHint: readOnly, destructiveHint: false, idempotentHint: readOnly, openWorldHint: name.includes("provider") || name === "studio_import_asset" } }, async (args) => {
       try {
@@ -22920,17 +23324,17 @@ function createServer(workspace2) {
       }
     });
   };
-  tool("studio_doctor", "Check local FFmpeg/ffprobe and configured provider credentials without exposing secrets.", {}, async () => ({ version: "0.1.0", workspace: store2.root, node: process.version, media: await doctorMedia(), providers: getProviderStatus(), transcription: { executableConfigured: Boolean(process.env.WHISPER_CPP_PATH), modelConfigured: Boolean(process.env.WHISPER_MODEL_PATH) } }), true);
+  tool("studio_doctor", "Check local FFmpeg/ffprobe, caption rendering and configured transcription/provider dependencies without exposing secrets.", {}, async () => ({ version: "0.2.0", workspace: store2.root, node: process.version, media: await doctorMedia(), providers: getProviderStatus(), transcription: transcriptionStatus() }), true);
   tool("studio_create_project", "Create an editable social content project. Default format: 1080\xD71920 at 30 fps.", { title: external_exports.string(), format: projectSchema.shape.format.optional() }, (a) => store2.create(a.title, a.format));
   tool("studio_get_project", "Read project.json with scene, asset, audio and caption references.", { projectId }, (a) => store2.get(a.projectId), true);
   tool("studio_update_project", "Update editable project fields. Arrays replace entire arrays; read first and pass expectedUpdatedAt to prevent stale edits. Assets are added only through import.", { projectId, patch: patchSchema, expectedUpdatedAt: external_exports.string().optional() }, (a) => store2.update(a.projectId, a.patch, a.expectedUpdatedAt));
   tool("studio_import_asset", "Copy a local media file or download a public HTTPS generated asset into the project. Validates media; preserves original. URLs are not stored in asset provenance.", { projectId, file: external_exports.string().optional(), url: external_exports.string().url().optional(), kind: external_exports.enum(["image", "video", "audio"]), provider: external_exports.string().optional(), creationId: external_exports.string().optional() }, (a) => importSource(store2, a.projectId, a));
   tool("studio_inspect_media", "Inspect dimensions, streams and duration of a local media file with ffprobe.", { file: external_exports.string() }, (a) => inspectMedia(a.file), true);
-  tool("studio_set_captions", "Set real timed captions. Provide exactly one captions array or SRT text; times are seconds.", { projectId, captions: captionsSchema.optional(), srt: external_exports.string().optional(), expectedUpdatedAt: external_exports.string().optional() }, (a) => {
+  tool("studio_set_captions", "Set measured captions and optional professional style. Provide captions (with words for word highlighting) or SRT, exclusively. Times are seconds. SRT alone does not contain word alignment. Use captionStyle.mode word for strict synchronization; never estimate word timings.", { projectId, captions: captionsSchema.optional(), srt: external_exports.string().optional(), captionStyle: captionStyleSchema.optional(), expectedUpdatedAt: external_exports.string().optional() }, (a) => {
     if (a.captions !== void 0 === (a.srt !== void 0)) throw new Error("Provide captions or srt, exclusively");
-    return store2.update(a.projectId, { captions: a.captions ?? parseSrt(a.srt) }, a.expectedUpdatedAt);
+    return store2.update(a.projectId, { captions: a.captions ?? parseSrt(a.srt), ...a.captionStyle ? { captionStyle: a.captionStyle } : {} }, a.expectedUpdatedAt);
   });
-  tool("studio_render", "Start a local render in background. Returns a job ID; poll studio_job_status. Exports MP4, timed SRT, cover PNG, caption text and HTML preview. Prior exports remain.", { projectId, preview: external_exports.boolean().optional() }, async (a) => {
+  tool("studio_render", "Start a local render in background. Returns a job ID; poll studio_job_status. Exports MP4, timed SRT, styled ASS, cover PNG, caption text and HTML preview. Word mode requires aligned words and FFmpeg libass. Prior exports remain.", { projectId, preview: external_exports.boolean().optional() }, async (a) => {
     const p = await store2.get(a.projectId);
     const dir = await store2.dir(a.projectId);
     return jobs.start(dir, (signal) => renderVideo(dir, p, { preview: a.preview, signal }));
@@ -22970,12 +23374,12 @@ function createServer(workspace2) {
   }, true);
   tool("studio_provider_jobs", "List saved provider jobs for a project to resume polling after restart.", { projectId }, async (a) => listProviderJobs(await store2.dir(a.projectId)), true);
   tool("studio_provider_reconcile", "Recover an ambiguous submission by binding the existing remote request ID verified in provider history. Does not create another generation.", { projectId, jobId: external_exports.string(), remoteId: external_exports.string() }, async (a) => reconcileProviderJob(await store2.dir(a.projectId), a.jobId, a.remoteId));
-  tool("studio_transcribe", "Transcribe an imported audio/video asset with local whisper.cpp. Returns SRT and captions timed relative to the SOURCE asset. Align timings with trims/scene placement, then call studio_set_captions explicitly. Requires WHISPER_CPP_PATH and WHISPER_MODEL_PATH.", { projectId, assetId: external_exports.string(), language: external_exports.string().optional() }, async (a) => {
+  tool("studio_transcribe", "Transcribe real audio/video locally. Auto prefers configured faster-whisper (word alignment + voice activity detection); whisper.cpp returns heuristic offsets. Returns SRT/JSON/captions relative to SOURCE asset. Requires the selected engine and local model configured; studio_doctor lists environment names. Prompt supplies vocabulary/context. dtwModel applies only to whisper.cpp. Review recognition and timing, adjust phrase AND word times for trims/scene placement, then call studio_set_captions with word mode.", { projectId, assetId: external_exports.string(), engine: external_exports.enum(["auto", "faster-whisper", "whisper.cpp"]).optional(), language: external_exports.string().optional(), prompt: external_exports.string().max(2e3).optional(), dtwModel: external_exports.enum(dtwModels).optional() }, async (a) => {
     const p = await store2.get(a.projectId), dir = await store2.dir(a.projectId);
     return jobs.start(dir, async (signal) => {
       const { transcribe: transcribe2 } = await Promise.resolve().then(() => (init_transcription(), transcription_exports));
-      const result = await transcribe2(dir, p, a.assetId, { language: a.language, signal });
-      return { ...result, assetId: a.assetId, timingBasis: "source_asset_seconds", nextStep: "Align with project timeline and apply using studio_set_captions." };
+      const result = await transcribe2(dir, p, a.assetId, { engine: a.engine, language: a.language, prompt: a.prompt, dtwModel: a.dtwModel, signal });
+      return { ...result, assetId: a.assetId, timingBasis: "source_asset_seconds", nextStep: "Review recognition and timing limitations, align phrase and word timestamps to the timeline, then apply using studio_set_captions with captionStyle.mode word." };
     });
   });
   return server;
@@ -22985,6 +23389,7 @@ async function serve(workspace2) {
 }
 
 // plugins/invokard-studio/src/cli.ts
+init_transcription();
 var { positionals, values } = parseArgs({ allowPositionals: true, options: { workspace: { type: "string" }, title: { type: "string" }, project: { type: "string" }, file: { type: "string" }, url: { type: "string" }, kind: { type: "string" }, json: { type: "string" }, preview: { type: "boolean" }, "install-tools": { type: "boolean" }, "tools-dir": { type: "string" }, help: { type: "boolean" } } });
 var workspace = resolve4(values.workspace || process.env.INVOKARD_WORKSPACE || join5(homedir2(), ".invokard-studio", "projects"));
 var store = new ProjectStore(workspace);
@@ -23001,7 +23406,7 @@ async function main() {
       await serve(workspace);
       return;
     case "doctor":
-      output({ version: "0.1.0", node: process.version, workspace, media: await doctorMedia(), providers: getProviderStatus() });
+      output({ version: "0.2.0", node: process.version, workspace, media: await doctorMedia(), providers: getProviderStatus(), transcription: transcriptionStatus() });
       return;
     case "setup": {
       const moduleUrl = new URL("../scripts/setup.mjs", import.meta.url).href;
@@ -23052,7 +23457,7 @@ async function main() {
       return;
     }
     case "help":
-      output({ name: "Invokard Studio", version: "0.1.0", commands: ["doctor", "setup [--install-tools] [--tools-dir path]", "serve", "create --title text", "get --project id", "update --project id --json patch.json", "import --project id --file path --kind image|video|audio", "captions --project id --file subtitles.srt", "render --project id [--preview]", "carousel --project id --json slides.json", "demo"], workspace: "Set --workspace or INVOKARD_WORKSPACE. Default ~/.invokard-studio/projects." });
+      output({ name: "Invokard Studio", version: "0.2.0", commands: ["doctor", "setup [--install-tools] [--tools-dir path]", "serve", "create --title text", "get --project id", "update --project id --json patch.json", "import --project id --file path --kind image|video|audio", "captions --project id --file subtitles.srt", "render --project id [--preview]", "carousel --project id --json slides.json", "demo"], workspace: "Set --workspace or INVOKARD_WORKSPACE. Default ~/.invokard-studio/projects." });
       return;
     default:
       throw new Error("Unknown command. Run with --help.");

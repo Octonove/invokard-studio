@@ -8,7 +8,21 @@ const id = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/, 'Invalid project or asset i
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Use a six digit hex color');
 const nonempty = z.string().trim().min(1);
 export const sceneSchema = z.object({id,assetId:id.optional(),duration:z.number().positive().max(300),trimStart:z.number().min(0).optional(),audioVolume:z.number().min(0).max(2).optional(),text:z.string().max(2000).optional(),background:color.optional(),motion:z.enum(['none','zoom']).optional()}).strict();
-export const captionSchema = z.object({start:z.number().min(0),end:z.number().positive(),text:nonempty.max(4000)}).strict();
+export const captionWordSchema=z.object({start:z.number().finite().min(0),end:z.number().finite().positive(),text:nonempty.max(160).refine(value=>! /\s/u.test(value),'Each word must be a single word with attached punctuation')}).strict();
+const normalizedCaption=(value:string)=>value.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+export const captionSchema = z.object({start:z.number().finite().min(0),end:z.number().finite().positive(),text:nonempty.max(4000),words:z.array(captionWordSchema).min(1).max(500).optional()}).strict().superRefine((caption,ctx)=>{
+ if(!caption.words)return;
+ caption.words.forEach((word,i)=>{
+  if(word.end<=word.start || word.start<caption.start-.001 || word.end>caption.end+.001 || (i>0 && word.start<caption.words![i-1].end-.001))
+   ctx.addIssue({code:'custom',message:'Word timing must be ordered, non-overlapping and inside its caption',path:['words',i]});
+ });
+ if(normalizedCaption(caption.words.map(w=>w.text).join(' '))!==normalizedCaption(caption.text))ctx.addIssue({code:'custom',message:'Word text must match the caption text',path:['words']});
+});
+export const captionStyleSchema=z.object({
+ mode:z.enum(['auto','word','plain']).optional(),fontSize:z.number().finite().min(16).max(240).optional(),
+ color:color.optional(),activeColor:color.optional(),outlineColor:color.optional(),outlineWidth:z.number().finite().min(0).max(12).optional(),bold:z.boolean().optional(),
+ maxWordsPerLine:z.number().int().min(1).max(8).optional(),maxLines:z.number().int().min(1).max(3).optional(),marginBottom:z.number().finite().min(.08).max(.45).optional()
+}).strict();
 export const captionsSchema = z.array(captionSchema).max(500).superRefine((items,ctx)=>{
   items.forEach((c,i)=>{ if(c.end<=c.start || (i>0 && c.start<items[i-1].end)) ctx.addIssue({code:'custom',message:'Caption timing must be ordered, non-overlapping, with end after start',path:[i]}); });
 });
@@ -18,12 +32,12 @@ export const projectSchema = z.object({
   schemaVersion:z.literal(1),id,title:nonempty.max(200),script:z.string().max(100000).optional(),createdAt:z.string().datetime(),updatedAt:z.string().datetime(),
   format:z.object({width:z.number().int().min(128).max(3840).multipleOf(2),height:z.number().int().min(128).max(3840).multipleOf(2),fps:z.number().int().min(12).max(60)}).strict(),
   assets:z.array(z.object({id,kind:z.enum(['image','video','audio']),path:nonempty,source:sourceSchema.optional()}).strict()).max(1000),
-  scenes:z.array(sceneSchema).max(200),captions:captionsSchema,carousel:slidesSchema.optional(),
+  scenes:z.array(sceneSchema).max(200),captions:captionsSchema,captionStyle:captionStyleSchema.optional(),carousel:slidesSchema.optional(),
   brand:z.object({background:color,color,accent:color,fontFamily:nonempty.max(80),fontFile:z.string().optional()}).strict(),
   audio:z.object({voiceAssetId:id.optional(),musicAssetId:id.optional(),musicVolume:z.number().min(0).max(2),voiceVolume:z.number().min(0).max(2)}).strict(),
   copy:z.object({caption:z.string().max(20000),hashtags:z.array(z.string().max(100)).max(100)}).strict()
 }).strict();
-export const patchSchema = projectSchema.pick({title:true,script:true,format:true,scenes:true,captions:true,carousel:true,brand:true,audio:true,copy:true}).partial().strict();
+export const patchSchema = projectSchema.pick({title:true,script:true,format:true,scenes:true,captions:true,captionStyle:true,carousel:true,brand:true,audio:true,copy:true}).partial().strict();
 
 export function validateProject(value:unknown):Project {
   const p=projectSchema.parse(value);

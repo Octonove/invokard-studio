@@ -21,4 +21,4 @@ for(const input of Object.keys(result.metafile.inputs)){
  }
 }
 await writeFile('plugins/invokard-studio/dist/THIRD_PARTY_NOTICES.txt',('Bundled JavaScript dependencies\n\n'+[...notices.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v).join('\n\n========================================\n\n')).trimEnd()+'\n');
-await writeFile('plugins/invokard-studio/dist/BUILD.json',JSON.stringify({version:'0.1.0',entry:'studio.mjs',node:'>=22'},null,2)+'\n');
+await writeFile('plugins/invokard-studio/dist/BUILD.json',JSON.stringify({version:JSON.parse(await readFile('package.json','utf8')).version,entry:'studio.mjs',node:'>=22'},null,2)+'\n');

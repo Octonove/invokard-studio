@@ -6,6 +6,7 @@ import {ProjectStore,parseSrt} from './project.js';
 import {doctorMedia,renderVideo,renderCarousel} from './media.js';
 import {serve,slidesSchema,importSource} from './server.js';
 import {getProviderStatus} from './providers.js';
+import {transcriptionStatus} from './transcription.js';
 const {positionals,values}=parseArgs({allowPositionals:true,options:{workspace:{type:'string'},title:{type:'string'},project:{type:'string'},file:{type:'string'},url:{type:'string'},kind:{type:'string'},json:{type:'string'},preview:{type:'boolean'},'install-tools':{type:'boolean'},'tools-dir':{type:'string'},help:{type:'boolean'}}});
 const workspace=resolve(values.workspace||process.env.INVOKARD_WORKSPACE||join(homedir(),'.invokard-studio','projects'));
 const store=new ProjectStore(workspace);
@@ -16,7 +17,7 @@ async function main(){
  const command=values.help?'help':positionals[0]||'help';
  switch(command){
   case 'serve':await serve(workspace);return;
-  case 'doctor':output({version:'0.1.0',node:process.version,workspace,media:await doctorMedia(),providers:getProviderStatus()});return;
+  case 'doctor':output({version:'0.2.0',node:process.version,workspace,media:await doctorMedia(),providers:getProviderStatus(),transcription:transcriptionStatus()});return;
   case 'setup':{const moduleUrl=new URL('../scripts/setup.mjs',import.meta.url).href;const {setup}=await import(moduleUrl);const result=await setup({installTools:Boolean(values['install-tools']),toolsDir:values['tools-dir']});output(result);process.exitCode=result.ready?0:1;return;}
   case 'create':output(await store.create(required(values.title,'title')));return;
   case 'get':output(await store.get(required(values.project,'project')));return;
@@ -34,7 +35,7 @@ async function main(){
    await store.update(p.id,{format:p.format});
    output({project:p.id,directory:dir,video,carousel});return;
   }
-  case 'help':output({name:'Invokard Studio',version:'0.1.0',commands:['doctor','setup [--install-tools] [--tools-dir path]','serve','create --title text','get --project id','update --project id --json patch.json','import --project id --file path --kind image|video|audio','captions --project id --file subtitles.srt','render --project id [--preview]','carousel --project id --json slides.json','demo'],workspace:'Set --workspace or INVOKARD_WORKSPACE. Default ~/.invokard-studio/projects.'});return;
+  case 'help':output({name:'Invokard Studio',version:'0.2.0',commands:['doctor','setup [--install-tools] [--tools-dir path]','serve','create --title text','get --project id','update --project id --json patch.json','import --project id --file path --kind image|video|audio','captions --project id --file subtitles.srt','render --project id [--preview]','carousel --project id --json slides.json','demo'],workspace:'Set --workspace or INVOKARD_WORKSPACE. Default ~/.invokard-studio/projects.'});return;
   default:throw new Error('Unknown command. Run with --help.');
  }
 }

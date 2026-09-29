@@ -2,7 +2,7 @@
 
 Plugin privado para Codex que convierte ideas y material existente en posts, carruseles, Reels y vídeos exportados. Integra los métodos Invokard Guionista y AI Media, proyectos editables, herramientas locales de FFmpeg y proveedores generativos opcionales.
 
-**Beta 0.1.0 · Node.js 22 o posterior · Codex app o CLI.** La extensión IDE de Codex admite MCP, pero no el paquete de plugins completo.
+**Beta 0.2.0 · Node.js 22 o posterior · Codex app o CLI.** La extensión IDE de Codex admite MCP, pero no el paquete de plugins completo.
 
 ## Instalar
 
@@ -52,7 +52,13 @@ node plugins/invokard-studio/dist/studio.mjs demo
 | FFmpeg y ffprobe | Ensamblan, exportan e inspeccionan archivos |
 | Proveedores opcionales | Magnific por MCP oficial; Higgsfield y música Magnific mediante adaptadores locales |
 
-Las exportaciones incluyen, según la operación, MP4, SRT, portada PNG, PNG de slides, copy y vista previa HTML. El proyecto JSON y sus recursos permiten seguir editando. Una nueva exportación conserva las anteriores.
+Las exportaciones incluyen, según la operación, MP4, SRT, subtítulos ASS editables con estilo, portada PNG, PNG de slides, copy y vista previa HTML. El proyecto JSON y sus recursos permiten seguir editando. Una nueva exportación conserva las anteriores.
+
+### Subtítulos para Reels
+
+La versión 0.2.0 añade **texto grande y en negrita con resaltado de la palabra que se está pronunciando**, borde oscuro y bloques breves dentro de márgenes seguros. Tamaño, colores, líneas y posición inferior son configurables por proyecto. Para obtener tiempos por palabra se recomienda el motor local faster-whisper con detección de voz; whisper.cpp sigue disponible como alternativa con tiempos heurísticos. El asistente debe revisar nombres, texto y sincronización antes de exportar.
+
+El modo `word` exige tiempos reales por palabra. Un SRT convencional solo contiene tiempos por frase: no se convierte en karaoke repartiendo su duración. El modo `auto` usa resaltado cuando hay alineación y devuelve advertencias cuando solo puede mostrar frases. [Guía de subtítulos y estilos](docs/captions.md) · [Transcripción local](docs/transcription.md).
 
 El modelo creativo lo aporta Codex. Este plugin no incluye una suscripción generativa ni créditos. Tampoco publica ni programa contenido en redes.
 
