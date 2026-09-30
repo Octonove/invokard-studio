@@ -1,13 +1,25 @@
-Invokard Studio — Copyright (c) 2026 Octonove / Antonio José Bergoños. All rights reserved.
+MIT License
 
-Private beta. Access to this repository does not grant a licence to copy, modify, redistribute or sell the software,
-in whole or in part, without written permission from the copyright holder.
+Copyright (c) 2026 Antonio José Bergoños / Octonove
 
-Third-party components keep their own licences:
-- Inter (skills/invokard-studio/assets/fonts/LICENSE-Inter.txt) — SIL Open Font License 1.1
-- Playfair Display (skills/invokard-studio/assets/fonts/LICENSE-PlayfairDisplay.txt) — SIL Open Font License 1.1
-- Noto Color Emoji, downloaded on demand (skills/invokard-studio/assets/fonts/LICENSE-NotoColorEmoji.txt) — SIL Open Font License 1.1
-- Sound effects in skills/invokard-studio/assets/sfx were generated with AI for this project and may be used with it.
-- Example reels in examples/ show client work and an artist's song and artwork; they are illustrations of the tool,
-  not assets you may reuse.
-- ffmpeg, Pillow, numpy, requests, faster-whisper: their respective licences.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+This licence covers the source code and documentation. Example video, audio,
+artwork and other media have separate terms in MEDIA_LICENSE.md. Bundled fonts
+retain their respective SIL Open Font Licences.

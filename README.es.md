@@ -1,5 +1,9 @@
 # Invokard Studio
 
+Creado por **Antonio José Bergoños (Octonove)**. El código y la documentación se publican con licencia MIT; conserva el aviso de autoría al reutilizarlos. Los medios de los ejemplos tienen derechos separados: [MEDIA_LICENSE.md](MEDIA_LICENSE.md).
+
+Si te ahorra una sesión de montaje, [invítame a una Paulaner](https://www.paypal.com/donate/?business=stradoxx%40gmail.com&no_recurring=0&currency_code=EUR&item_name=Support%20Invokard%20Studio). El motor de reels funciona igual de bien sin cerveza.
+
 **Reels que parecen editados, hechos por tu agente de programación.** Una skill para Claude Code, Codex, Antigravity,
 Gemini CLI y Cursor, y un motor en Python que compone cada fotograma: subtítulos palabra a palabra con la palabra
 clave resaltada, titulares y píldoras animadas, gráficas, cortinillas de antes y después, cortes a tiempo con la
@@ -128,8 +132,8 @@ Los tests se ejecutan con `python -m pytest tests -q` (necesita ffmpeg).
 
 ## Estado
 
-Beta privada, versión 1.0.0. Construida y verificada en Windows 11 con Python 3.14 y ffmpeg 8; el código no tiene
+Versión pública 1.0.0. Construida y verificada en Windows 11 con Python 3.14 y ffmpeg 8; el código no tiene
 rutas de plataforma (las fuentes van empaquetadas y las del sistema son el respaldo), pero macOS y Linux no se han
 probado todavía. El plugin 0.x en TypeScript para Codex se conserva bajo la etiqueta `v0.2.0-codex`.
 
-Licencia: todos los derechos reservados durante la beta privada ([LICENSE](LICENSE)). Las fuentes son OFL.
+Licencia: MIT para código y documentación ([LICENSE](LICENSE)); los medios de ejemplo solo pueden mostrarse según sus [términos separados](MEDIA_LICENSE.md). Las fuentes conservan su licencia OFL.
