@@ -1,0 +1,13 @@
+Invokard Studio — Copyright (c) 2026 Octonove / Antonio José Bergoños. All rights reserved.
+
+Private beta. Access to this repository does not grant a licence to copy, modify, redistribute or sell the software,
+in whole or in part, without written permission from the copyright holder.
+
+Third-party components keep their own licences:
+- Inter (skills/invokard-studio/assets/fonts/LICENSE-Inter.txt) — SIL Open Font License 1.1
+- Playfair Display (skills/invokard-studio/assets/fonts/LICENSE-PlayfairDisplay.txt) — SIL Open Font License 1.1
+- Noto Color Emoji, downloaded on demand (skills/invokard-studio/assets/fonts/LICENSE-NotoColorEmoji.txt) — SIL Open Font License 1.1
+- Sound effects in skills/invokard-studio/assets/sfx were generated with AI for this project and may be used with it.
+- Example reels in examples/ show client work and an artist's song and artwork; they are illustrations of the tool,
+  not assets you may reuse.
+- ffmpeg, Pillow, numpy, requests, faster-whisper: their respective licences.

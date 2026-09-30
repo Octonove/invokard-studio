@@ -1,0 +1,4 @@
+# Core engine: Pillow composes the frames, numpy does the audio analysis, requests talks to the provider APIs.
+Pillow>=10.0
+numpy>=1.24
+requests>=2.31

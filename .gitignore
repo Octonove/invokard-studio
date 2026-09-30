@@ -1,14 +1,27 @@
-node_modules/
+# secrets
 .env
 .env.*
 !.env.example
-*.log
-.studio/
-studio-projects/
-coverage/
-test-output/
-*.tgz
-*.zip
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# reel work folders (never commit frames, renders or intermediates)
+work/
+**/frames/
+**/out/_video.mp4
+**/out/_audio.wav
+**/review/
+*.f.png
+
+# large optional font (downloaded by `python media.py fonts`)
+skills/invokard-studio/assets/fonts/NotoColorEmoji.ttf
+
+# editors / OS
 .DS_Store
 Thumbs.db
-work/
+.idea/
+.vscode/

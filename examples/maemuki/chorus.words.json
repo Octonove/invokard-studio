@@ -1,0 +1,180 @@
+{
+ "engine": "faster-whisper",
+ "model": "../models/faster-whisper-small",
+ "language": "es",
+ "language_probability": 1,
+ "words": [
+  {
+   "text": "Aquí",
+   "start": 0.35,
+   "end": 0.61
+  },
+  {
+   "text": "se",
+   "start": 0.61,
+   "end": 0.81
+  },
+  {
+   "text": "*curra*,",
+   "start": 0.81,
+   "end": 1.33
+  },
+  {
+   "text": "se",
+   "start": 1.43,
+   "end": 1.53
+  },
+  {
+   "text": "*sangra*,",
+   "start": 1.53,
+   "end": 2.25
+  },
+  {
+   "text": "hasta",
+   "start": 3.67,
+   "end": 3.85
+  },
+  {
+   "text": "que",
+   "start": 3.85,
+   "end": 4.07
+  },
+  {
+   "text": "los",
+   "start": 4.07,
+   "end": 4.27
+  },
+  {
+   "text": "huesos",
+   "start": 4.27,
+   "end": 4.67
+  },
+  {
+   "text": "*crujen*,",
+   "start": 4.67,
+   "end": 5.35
+  },
+  {
+   "text": "mientras",
+   "start": 7.08,
+   "end": 7.38
+  },
+  {
+   "text": "otros",
+   "start": 7.38,
+   "end": 7.78
+  },
+  {
+   "text": "duermen,",
+   "start": 7.78,
+   "end": 8.92
+  },
+  {
+   "text": "mis",
+   "start": 10.12,
+   "end": 10.22
+  },
+  {
+   "text": "*ambiciones*",
+   "start": 10.22,
+   "end": 10.86
+  },
+  {
+   "text": "*rugen*.",
+   "start": 10.86,
+   "end": 11.82
+  },
+  {
+   "text": "Cinco",
+   "start": 13.09,
+   "end": 13.41
+  },
+  {
+   "text": "*códigos*",
+   "start": 13.41,
+   "end": 14.01
+  },
+  {
+   "text": "de",
+   "start": 14.01,
+   "end": 14.23
+  },
+  {
+   "text": "vida,",
+   "start": 14.23,
+   "end": 14.53
+  },
+  {
+   "text": "mira",
+   "start": 14.63,
+   "end": 14.91
+  },
+  {
+   "text": "bien",
+   "start": 14.91,
+   "end": 15.21
+  },
+  {
+   "text": "lo",
+   "start": 15.21,
+   "end": 15.41
+  },
+  {
+   "text": "que",
+   "start": 15.41,
+   "end": 15.59
+  },
+  {
+   "text": "respiro.",
+   "start": 15.59,
+   "end": 16.25
+  },
+  {
+   "text": "Círculo",
+   "start": 16.47,
+   "end": 16.93
+  },
+  {
+   "text": "de",
+   "start": 16.93,
+   "end": 17.23
+  },
+  {
+   "text": "*leales*",
+   "start": 17.23,
+   "end": 17.73
+  },
+  {
+   "text": "frente",
+   "start": 17.73,
+   "end": 18.01
+  },
+  {
+   "text": "al",
+   "start": 18.01,
+   "end": 18.27
+  },
+  {
+   "text": "que",
+   "start": 18.27,
+   "end": 18.41
+  },
+  {
+   "text": "luego",
+   "start": 18.41,
+   "end": 18.65
+  },
+  {
+   "text": "me",
+   "start": 18.65,
+   "end": 19.01
+  },
+  {
+   "text": "miro.",
+   "start": 19.01,
+   "end": 19.47
+  }
+ ],
+ "unmatched": 0,
+ "recognised": "Aquí se curra, se sangra, hasta que los huesos crujen, mientras otros duermen, mis ambiciones rugen. Cinco Códigos de vida, mira bien lo que respiro. Círculo de leales frente al que luego me miro."
+}

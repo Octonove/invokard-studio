@@ -1,4 +1,17 @@
-* text=auto eol=lf
-*.png binary
+# Normalise line endings: LF in the repository, native on checkout for text; scripts always LF.
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.example text eol=lf
+
+# Binary media and fonts
 *.mp4 binary
-*.zip binary
+*.gif binary
+*.jpg binary
+*.png binary
+*.webp binary
+*.mp3 binary
+*.wav binary
+*.ttf binary

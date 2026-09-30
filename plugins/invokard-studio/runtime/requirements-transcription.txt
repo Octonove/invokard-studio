@@ -1,5 +1,0 @@
-# Tested together on Windows CPU. Install into an optional Python 3.11+ environment.
-faster-whisper==1.2.1
-ctranslate2==4.8.2
-# PyAV 19 removes metadata_errors used by faster-whisper 1.2.1.
-av==16.1.0

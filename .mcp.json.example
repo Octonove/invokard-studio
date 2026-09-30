@@ -1,0 +1,6 @@
+{
+  "_comment": "Copy to .mcp.json in your project (Claude Code) to give the agent the Magnific connector: images, video, voice and music with OAuth, no API key in files. Codex: `codex mcp add magnific --url https://mcp.magnific.com`. Antigravity / Gemini CLI: add the same server in ~/.gemini/settings.json under mcpServers.",
+  "mcpServers": {
+    "magnific": { "type": "http", "url": "https://mcp.magnific.com" }
+  }
+}

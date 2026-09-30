@@ -1,88 +1,131 @@
 # Invokard Studio
 
-Plugin privado para Codex que convierte ideas y material existente en posts, carruseles, Reels y vídeos exportados. Integra los métodos Invokard Guionista y AI Media, proyectos editables, herramientas locales de FFmpeg y proveedores generativos opcionales.
+**Reels that look edited, made by your coding agent.** A skill for Claude Code, Codex, Antigravity, Gemini CLI and
+Cursor, plus a Python engine that composes every frame: word-by-word captions with the key word highlighted, animated
+headlines and chips, charts, before/after wipes, cuts on the beat, end cards, a proper audio mix. Bring AI images and
+clips from Magnific (or any provider), or the client's own footage, or just a song and its artwork.
 
-**Beta 0.2.0 · Node.js 22 o posterior · Codex app o CLI.** La extensión IDE de Codex admite MCP, pero no el paquete de plugins completo.
+*Lee esto en español: [README.es.md](README.es.md).*
 
-## Instalar
+| Client footage, cut on the beat | Illustrations + voice + chart | A song and its artwork |
+|:---:|:---:|:---:|
+| ![Schippers](examples/schippers/preview.gif) | ![Ekilib](examples/ekilib/preview.gif) | ![Maemuki](examples/maemuki/preview.gif) |
+| [Schippers New Zealand](examples/schippers/) · 31 s · 34 phone clips, no voice-over, the client's script on screen, a wipe on the logo, everything on a 115 BPM grid. Zero credits on video. | [Ekilib](examples/ekilib/) · 45 s · nine sentences of voice, thirteen illustrations in the client's style, an animated glucose card, a numbered list, a morph. | [Maemuki](examples/maemuki/) · 20 s · the chorus transcribed locally and snapped to the lyrics; a pan across the artwork. Zero credits. |
 
-Necesitas acceso al repositorio privado, Git, Node.js 22+ con npm y Codex. Autentica Git con tu propia cuenta; no introduzcas tokens en la URL.
+A fourth set, three prompt reels for [Simplifica con IA](examples/simplificaconia/), shows the "comment WORD" outro and
+the section chips (made with the previous version of the engine; no script shipped). For the other three, the
+`reel.py` that produced them ships inside the skill (`skills/invokard-studio/assets/examples/`), so agents read it
+before writing their own: that file *is* the edit.
 
-```sh
+## How it works
+
+```
+   script ──▶ voice (one file per sentence) ──▶ captions timed word by word ──▶ every cut = a word time
+   images (AI, with a style reference) ──▶ preview the whole edit on stills ──▶ clips only for the shots that need motion
+   client clips ──▶ contact sheets ──▶ extract segments ──▶ beat grid ──▶ wipe ──▶ end card on the final hit
+   song / narration ──▶ align.py (faster-whisper) ──▶ captions from timed words
+                                        │
+                              reel.py  ─┴─▶  reelkit: Pillow frames ──▶ ffmpeg h264 + ducked, normalised mix ──▶ out/reel.mp4 + cover
+```
+
+The agent writes `reel.py` — 60 to 150 lines that describe shots, layers, voice, effects — previews it as a contact
+sheet, fixes it, and renders. The skill (`skills/invokard-studio/SKILL.md`) is the method: what to generate and in
+what order, how to time, what to check, what things cost, what not to do. It was distilled from delivered client work,
+not from a demo.
+
+## Install
+
+Requirements: Python 3.10+, ffmpeg and ffprobe on PATH ([troubleshooting](skills/invokard-studio/references/troubleshooting.md)).
+
+```bash
 git clone https://github.com/Octonove/invokard-studio.git
 cd invokard-studio
-node plugins/invokard-studio/scripts/setup.mjs
+pip install -r requirements.txt
+python install.py            # detects Claude Code / Codex / Antigravity / Gemini CLI / Cursor / Windsurf and installs the skill for each
+python install.py doctor     # ffmpeg, packages, fonts, keys (names only), agents found
 ```
 
-Si faltan FFmpeg o ffprobe, ejecuta explícitamente:
+| Agent | Where the skill goes | How to call it |
+|---|---|---|
+| Claude Code | `~/.claude/skills/invokard-studio` | ask for a reel; or `/invokard-studio` |
+| Codex CLI / app | `~/.codex/skills/invokard-studio` and `~/.agents/skills/` | `$invokard-studio make me a 30 s reel from these clips` |
+| Antigravity | `~/.gemini/config/skills/invokard-studio` | `/invokard-studio` |
+| Gemini CLI | `~/.gemini/skills/invokard-studio` | `/invokard-studio` or ask |
+| Cursor | `~/.cursor/skills/invokard-studio` | ask; Cursor also reads the Claude and Codex folders |
+| Windsurf | `~/.codeium/windsurf/skills/invokard-studio` | ask |
 
-```sh
-node plugins/invokard-studio/scripts/setup.mjs --install-tools
+`python install.py --project .` installs into the current project (`.agents/skills`, `.claude/skills`, …) so a team
+shares it through git. `--link` uses a symlink/junction so edits in this repo apply at once. `--agents codex,cursor`
+limits the targets. `python install.py uninstall` removes what it installed.
+
+Optional: `pip install -r requirements-align.txt` (faster-whisper) for captions from a recorded narration or a song.
+
+## Connect a media provider
+
+The engine renders local media without any account. To *generate* images, clips, voice and music:
+
+- **Magnific MCP** (recommended): add `https://mcp.magnific.com` to your agent's MCP servers and sign in in the
+  browser. `.mcp.json.example` is the Claude Code snippet; `codex mcp add magnific --url https://mcp.magnific.com` for
+  Codex. Gives Nano Banana Pro, Kling 3.0, Veo 3.1, ElevenLabs voices, Lyria 3 music and a cost simulator.
+- **Magnific REST**: `MAGNIFIC_API_KEY` in `.env` (see `.env.example`) → `scripts/providers/magnific.py`.
+- **ElevenLabs**: `ELEVENLABS_API_KEY` → `scripts/providers/elevenlabs.py`, with per-word timestamps.
+- **Your own files**: photos, clips, a recorded voice, a licensed track, dropped in the work folder.
+
+Keys stay in the environment or in `.env`, never in the chat or in scripts. Details, model choices and credit prices:
+[references/providers.md](skills/invokard-studio/references/providers.md).
+
+## First reel
+
+Tell your agent what you have. Three prompts that work:
+
+> Make a 30-second Instagram reel about this article. Use the invokard-studio skill. Brand colours from ref/logo.png.
+
+> Here are 20 clips of the job in `clips/`. Build a before/after reel with this text on screen, no voice-over, cut on
+> the music.
+
+> This is a song and its cover. Make a 20-second lyric teaser of the chorus.
+
+The agent will scaffold a work folder (`python scripts/new_reel.py`), generate or ingest the material, preview the edit
+as a contact sheet (`review/preview.jpg`), render (`out/reel.mp4`, `out/cover.jpg`) and verify the file
+(`media.py verify`: specs, loudness, a contact sheet from the final MP4). It will not publish anything.
+
+## What is in the box
+
+```
+skills/invokard-studio/
+  SKILL.md                     the method (Agent Skills standard; works in every agent that reads SKILL.md)
+  references/                  production.md · footage.md · providers.md · api.md · troubleshooting.md
+  scripts/reelkit.py           the engine: sources, layers, captions, audio mix, beat grid
+  scripts/pieces.py            components: brand, headline, chips, text blocks, chart card, list items, wipe, end cards
+  scripts/media.py             tools: frames, extract, contact sheets, voice spans, beats, splice, verify, web, gif…
+  scripts/align.py             word timings from any audio (faster-whisper), snapped to the real text
+  scripts/providers/           magnific.py · elevenlabs.py · costs.py · env.py
+  scripts/new_reel.py          scaffolds a work folder + reel.py from template_reel.py
+  assets/fonts/ · assets/sfx/  Inter, Playfair Display (OFL); eight sound effects
+  assets/examples/             schippers · ekilib · maemuki: the reel.py of each delivered reel
+examples/                      the same three plus simplificaconia: 720p copies, gifs, covers, notes
+install.py                     install / doctor / uninstall
+tests/                         engine and installer tests (pytest; no credits, no keys)
 ```
 
-El instalador descarga versiones fijadas en tu carpeta personal de herramientas. Si ya tienes ambos binarios, el primer comando basta. Comprueba después el runtime y registra el catálogo privado:
+Run the tests with `python -m pytest tests -q` (needs ffmpeg).
 
-```sh
-node plugins/invokard-studio/dist/studio.mjs doctor
-codex plugin marketplace add .
-```
+## Design notes
 
-Abre Plugins en Codex app —o `/plugins` en Codex CLI—, elige el catálogo **Invokard Studio**, instala **Invokard Studio** y abre un chat nuevo. El bundle ya incluye las dependencias JavaScript: el usuario no necesita compilar ni instalar dependencias del repositorio.
+- **Everything on screen is set by the engine.** Images are generated without text; type, boxes, captions and
+  animation are composed at render time, so they are sharp and exactly timed, and a brand change is one line.
+- **Timing comes from audio, not from eyes.** One voice file per sentence gives the engine the pauses; captions and
+  cuts derive from them. With a recorded narration or a song, `align.py` gives the words.
+- **Preview before spending.** The edit is built and reviewed on still images; clips are generated last, only for the
+  shots that need motion, after a cost estimate.
+- **Real footage is a first-class input.** Landscape clips are fitted over their own blur, segments come from contact
+  sheets, and cuts sit on a beat grid measured from the track.
+- **The mix is done.** Sidechain ducking under the voice, −14 LUFS, true-peak limiter; sound effects on the cuts.
 
-[Instalación detallada y solución de problemas](docs/INSTALL.md).
+## Status
 
-## Primer encargo
+Private beta, version 1.0.0. Built and verified on Windows 11 with Python 3.14 and ffmpeg 8; the code has no
+platform-specific paths (fonts are bundled, system fonts are fallbacks), but macOS and Linux have not been exercised
+yet. The 0.x TypeScript plugin for Codex is preserved under the tag `v0.2.0-codex`.
 
-> Usa Invokard Studio para crear un Reel vertical de 20 segundos con estas tres fotos. Mantén el estilo de mi marca, añade titulares y entrégame vídeo, portada y proyecto editable.
-
-El asistente prepara el guion, incorpora recursos, compone la pieza y verifica los archivos. Para empezar sin cuentas generativas puedes usar tus imágenes, vídeos y audios. También puedes ejecutar una demo local:
-
-```sh
-node plugins/invokard-studio/dist/studio.mjs demo
-```
-
-## Qué incluye
-
-| Pieza | Función |
-| --- | --- |
-| Guionista | Gancho, estructura, guion hablado, escenas y copy |
-| AI Media | Prompts por plano, coherencia de recursos y control de gasto |
-| Producción | Coordina proyecto, recursos, subtítulos, revisión y exportación |
-| MCP local y CLI | Guardan proyectos y ejecutan operaciones de medios |
-| FFmpeg y ffprobe | Ensamblan, exportan e inspeccionan archivos |
-| Proveedores opcionales | Magnific por MCP oficial; Higgsfield y música Magnific mediante adaptadores locales |
-
-Las exportaciones incluyen, según la operación, MP4, SRT, subtítulos ASS editables con estilo, portada PNG, PNG de slides, copy y vista previa HTML. El proyecto JSON y sus recursos permiten seguir editando. Una nueva exportación conserva las anteriores.
-
-### Subtítulos para Reels
-
-La versión 0.2.0 añade **texto grande y en negrita con resaltado de la palabra que se está pronunciando**, borde oscuro y bloques breves dentro de márgenes seguros. Tamaño, colores, líneas y posición inferior son configurables por proyecto. Para obtener tiempos por palabra se recomienda el motor local faster-whisper con detección de voz; whisper.cpp sigue disponible como alternativa con tiempos heurísticos. El asistente debe revisar nombres, texto y sincronización antes de exportar.
-
-El modo `word` exige tiempos reales por palabra. Un SRT convencional solo contiene tiempos por frase: no se convierte en karaoke repartiendo su duración. El modo `auto` usa resaltado cuando hay alineación y devuelve advertencias cuando solo puede mostrar frases. [Guía de subtítulos y estilos](docs/captions.md) · [Transcripción local](docs/transcription.md).
-
-El modelo creativo lo aporta Codex. Este plugin no incluye una suscripción generativa ni créditos. Tampoco publica ni programa contenido en redes.
-
-## Conectar generación opcional
-
-Para Magnific, sigue [la conexión oficial por OAuth](docs/INSTALL.md#proveedores-opcionales). Para Higgsfield y la API opcional de música Magnific, configura las variables de entorno de tu cuenta. Las claves no se piden en chat, no se pasan como argumentos de herramientas y no pertenecen al proyecto.
-
-La configuración de una cuenta no prueba que tenga acceso a un modelo o créditos. La validación de adaptadores usa pruebas de red simuladas; una generación de pago real exige credenciales y un encargo concreto autorizado. [Proveedores y recuperación de trabajos](docs/providers.md).
-
-## Datos y archivos
-
-Por defecto los proyectos se guardan en `~/.invokard-studio/projects`, fuera de la instalación. Puedes elegir otra carpeta con `INVOKARD_WORKSPACE` o con `--workspace` en CLI. Las herramientas opcionales se guardan en `~/.invokard-studio/tools`; admite `INVOKARD_TOOLS_DIR`.
-
-El render local procesa medios en tu equipo. Al usar un proveedor, se envían a ese servicio los datos requeridos por la operación. No hay un servidor central de Invokard en esta beta.
-
-## Desarrollo
-
-```sh
-pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm test
-pnpm build
-```
-
-El bundle distribuible está en `plugins/invokard-studio/dist/studio.mjs`. [Diseño](docs/design.md) y [plan](docs/implementation-plan.md).
-
-El método original de cada skill está conservado con su commit y procedencia bajo `skills/*/references/`. Distribución privada **UNLICENSED**; las dependencias y herramientas de terceros mantienen sus propias licencias.
+Licence: all rights reserved during the private beta ([LICENSE](LICENSE)). Fonts are OFL.

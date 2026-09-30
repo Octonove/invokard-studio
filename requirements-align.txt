@@ -1,0 +1,3 @@
+# Optional: word timings for captions from a recorded narration or a song (scripts/align.py).
+# CPU int8 inference; the "small" model is ~500 MB and downloads on first use.
+faster-whisper>=1.1
