@@ -40,7 +40,7 @@ All coordinates are pixels on a 1080x1920 canvas; times are seconds; colours are
 | `reel.frame_at(t)` | RGB frame (for custom checks) |
 | `reel.preview(times, out, cols, scale)` | Contact sheet |
 | `reel.render(out, total, music=None, music_gain=0.24, music_offset=None, **audio)` | Video + mix + mux |
-| `reel.render_audio(out, total, music, music_gain, music_offset, music_fade_in=0.5, music_fade_out=2.2, duck=True, loudness=-14, true_peak=-2.0, limiter=True)` | The mix alone |
+| `reel.render_audio(out, total, music, music_gain, music_offset, music_fade_in=0.5, music_fade_out=2.2, duck=True, loudness=-14, true_peak=-2.0, limiter=True, linear=True)` | The mix alone. `linear=True`: measure first, then one fixed gain for the whole reel, so the hook at 0 s is as loud as the rest; `linear=False`: the old single-pass dynamic loudnorm |
 | `reel.cover(t, out)` | Frame at `t` without captions |
 
 Caption syntax: `*word*` highlight · ` / ` block break · `shown|spoken`. Phrases split on `.,:;?!`.

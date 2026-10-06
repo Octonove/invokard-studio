@@ -1,6 +1,7 @@
 # Engine tests: no provider, no credits. Needs ffmpeg/ffprobe on PATH (they synthesise the audio and encode the render).
 import os, sys, json, subprocess, tempfile, shutil
 import pytest
+import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(ROOT, 'skills', 'invokard-studio', 'scripts')
@@ -105,6 +106,37 @@ def test_render_smoke(work):
     assert 'h264,1080,1920' in info and 'aac' in info
     assert abs(float(info[-1]) - 2.0) < 0.1
     reel.cover(1.0, 'out/cover.jpg'); assert os.path.getsize(rk.P('out/cover.jpg')) > 10000
+
+def _rms_db(path, t0, t1):
+    import wave
+    with wave.open(path) as w:
+        sr, ch = w.getframerate(), w.getnchannels()
+        x = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).reshape(-1, ch).astype(np.float64) / 32768
+    return 20 * np.log10(np.sqrt(np.mean(x[int(t0 * sr):int(t1 * sr)] ** 2)))
+
+def _lufs(path):
+    err = subprocess.run(['ffmpeg', '-hide_banner', '-nostats', '-i', path, '-af', 'loudnorm=print_format=json', '-f', 'null', '-'],
+                         capture_output=True, text=True, check=True).stderr
+    return float(json.loads(err[err.rindex('{'):err.rindex('}') + 1])['input_i'])
+
+# The same second at the start and at 13.5 s, with a quieter bed in between. Single-pass loudnorm left the opening ~5 dB
+# quieter than its repeat in both cases. 'tone': a plain sine, normalised by loudnorm in linear mode, which lands on the
+# target. 'peaky': a quiet sine with short clicks; its peaks sit too high for linear loudnorm at -14 LUFS / -2 dBTP (as
+# with speech), so the engine applies the gain with volume + limiter. Here the limiter shaves ~6 dB of peaks and the mix
+# lands ~1 dB under the target, so only the opening level is checked (real speech, ~2 dB over: -14.3 LUFS).
+@pytest.mark.parametrize('kind, src', [
+    ('tone', 'sine=frequency=440:duration=1:sample_rate=48000'),
+    ('peaky', "aevalsrc='0.12*sin(2*PI*440*t)+0.3*lt(mod(t\\,0.25)\\,0.003)*sin(2*PI*3000*t)':s=48000:d=1")])
+def test_loudness_keeps_the_opening_level(work, kind, src):
+    hook, bed = os.path.join(work, f'hook_{kind}.wav'), os.path.join(work, 'bed.wav')
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', src, hook], check=True)
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=12:sample_rate=48000', bed], check=True)
+    reel = rk.Reel('loud')
+    reel.vo(hook, 0.0); reel.vo(bed, 1.2, gain=0.2); reel.vo(hook, 13.5)     # the same second at the start and later
+    out = os.path.join(work, 'out', f'loud_{kind}.wav')
+    reel.render_audio(out, 15.0)                                            # default settings, as render() uses them
+    assert abs(_rms_db(out, 0.1, 0.9) - _rms_db(out, 13.6, 14.4)) < 0.5
+    if kind == 'tone': assert abs(_lufs(out) + 14) < 0.5
 
 def test_render_music_only_and_no_duck(work):
     reel = rk.Reel('m'); reel.shot(0, 1.0, rk.Still('img/bg.png'))

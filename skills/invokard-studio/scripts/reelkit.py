@@ -8,7 +8,7 @@
 #   reel.ov(t0, t1, lambda c, tl, dur, t: ...)                 # RGBA layer drawn on top (tl = local time)
 #   reel.vo('vo/v01.mp3', 0.3); reel.caps.line('v01', 'Text with *highlight*.', 'vo/v01.mp3', 0.3)
 #   reel.render('out/reel.mp4', TOTAL, music='music/base.mp3')
-import os, re, math, subprocess, functools
+import os, re, json, math, subprocess, functools
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 import fonts as _fonts
@@ -452,9 +452,14 @@ class Reel:
         if pr.returncode: raise RuntimeError(f'ffmpeg video encode failed ({pr.returncode})')
 
     def render_audio(self, out, total, music=None, music_gain=0.30, music_offset=None, music_fade_in=0.5, music_fade_out=2.2,
-                     duck=True, loudness=-14, true_peak=-2.0, limiter=True):
+                     duck=True, loudness=-14, true_peak=-2.0, limiter=True, linear=True):
         """Mix voice + music (ducked under the voice with a sidechain compressor) + effects; loudness-normalised.
-        music_offset=None starts the music at its first strong onset. Works with any subset: voice only, music only..."""
+        music_offset=None starts the music at its first strong onset. Works with any subset: voice only, music only...
+        linear=True (default) normalises in two passes with one fixed gain for the whole reel: a first pass measures the
+        mix, the second applies the gain. Single-pass loudnorm (linear=False) is dynamic and starts with too little gain,
+        so a hook spoken in the first seconds comes out quieter than the same audio later (measured: up to 5-6 dB).
+        When that gain would push the peaks past true_peak, loudnorm refuses linear mode, so the gain is applied with
+        `volume` and the limiter catches the peaks (without the limiter it falls back to dynamic mode)."""
         args = ['ffmpeg', '-v', 'error', '-y']; parts = []; vo_l = []; sx_l = []
         for i, (kind, path, t, g) in enumerate(self.audio):
             args += ['-i', P(path)]; ms = int(round(t * 1000))
@@ -483,7 +488,25 @@ class Reel:
         if len(final) == 1: parts.append(f'{final[0]}anull[mix]')
         else: parts.append(f'{"".join(final)}amix=inputs={len(final)}:normalize=0:dropout_transition=0[mix]')
         lim = f',alimiter=limit={10 ** (true_peak / 20):.3f}:attack=4:release=60:level=false' if limiter else ''
-        parts.append(f'[mix]atrim=end={total},loudnorm=I={loudness}:TP={true_peak}:LRA=11,aresample=48000{lim}[out]')
+        norm = f'loudnorm=I={loudness}:TP={true_peak}:LRA=11'
+        if linear:                                   # first pass: measure the whole mix; second pass: one fixed gain
+            probe = parts + [f'[mix]atrim=end={total},{norm}:print_format=json[out]']
+            # no '-v error' here: loudnorm prints its JSON report at info level
+            err = subprocess.run(['ffmpeg', '-hide_banner', '-nostats'] + args[3:] + ['-filter_complex', ';'.join(probe), '-map', '[out]', '-f', 'null', '-'],
+                                 capture_output=True, text=True, check=True).stderr
+            m = json.loads(err[err.rindex('{'):err.rindex('}') + 1])
+            gain = loudness - float(m['input_i'])
+            if not math.isfinite(gain) or float(m['input_i']) <= -70: pass     # silent or too short to measure: stay dynamic
+            elif limiter and float(m['input_tp']) + gain > true_peak:
+                # loudnorm only stays linear if the gain keeps the peaks under true_peak; otherwise it silently goes dynamic.
+                # Speech at -14 LUFS / -2 dBTP usually doesn't fit (12 dB of room; measured peaks ~14 dB above loudness):
+                # same fixed gain here, and the limiter below catches the peaks.
+                norm = f'volume={gain:.2f}dB'
+            else:
+                lra = min(50.0, max(11.0, float(m['input_lra']) + 1.0))   # a target LRA below the source forces dynamic mode
+                norm = (f'loudnorm=I={loudness}:TP={true_peak}:LRA={lra:.1f}:linear=true:measured_I={m["input_i"]}:'
+                        f'measured_TP={m["input_tp"]}:measured_LRA={m["input_lra"]}:measured_thresh={m["input_thresh"]}:offset={m["target_offset"]}')
+        parts.append(f'[mix]atrim=end={total},{norm},aresample=48000{lim}[out]')
         args += ['-filter_complex', ';'.join(parts), '-map', '[out]', '-c:a', 'pcm_s16le', out]
         subprocess.run(args, check=True)
 

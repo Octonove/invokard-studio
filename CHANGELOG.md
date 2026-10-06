@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **Audio: the opening keeps its level.** `render_audio` (and so `render`) normalises with one fixed gain for the whole
+  reel, measured in a first pass (`linear=True`, now the default). Single-pass `loudnorm` is dynamic and starts with too
+  little gain, so a hook spoken in the first seconds came out quieter than the same audio later: up to 5-6 dB on a real
+  video, ~5 dB in the new test. It also missed −14 LUFS on short reels (−11.8 LUFS in that test).
+  When the gain would push the peaks past `true_peak` (speech at −14 LUFS / −2 dBTP usually does: there are 12 dB of
+  room and the voice mixes measured had peaks ~14 dB above their loudness), `loudnorm` silently refuses linear mode; the
+  engine then applies the same gain with `volume` and lets the existing limiter catch the peaks (real voice mix: −14.3
+  LUFS, peak −2.0 dBTP, opening and repeat within 0.0 dB). With `limiter=False` that case stays dynamic. `linear=False` brings back
+  the old behaviour. Cost: one extra audio-only ffmpeg pass.
+- **Tests**: `test_loudness_keeps_the_opening_level` — the same second at 0 s and at 13.5 s must come out within 0.5 dB,
+  for a plain tone (linear `loudnorm`) and for a signal with speech-like peaks (`volume` + limiter).
+
 ## 1.0.0 · 30 September 2026 — rebuilt around the reel engine
 
 The repository is rebuilt from scratch. The 0.x TypeScript plugin for Codex is kept in git history under the tag

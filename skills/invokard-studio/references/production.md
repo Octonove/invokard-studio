@@ -96,6 +96,9 @@ the REST helper covers Kling 2.5/2.6 image-to-video (`providers/magnific.py vide
   out 40-60 s). The engine trims from the first onset (`music_start`) and ducks it under the voice (sidechain).
   `music_gain` 0.22-0.28 with voice, 0.5-0.6 without. The REST music endpoint answered 410 in September 2026.
 - Final mix normalised to −14 LUFS, true peak −2 dBFS with a limiter (`render_audio` options). Effects gain 0.25-0.40.
+  The gain is fixed for the whole reel (two passes, `linear=True`): a hook spoken at 0 s keeps the same level as the rest.
+  When the limiter has to shave a lot of peaks (loud clicks or hits over a quiet mix) the reel can land up to ~1 dB under
+  −14 LUFS; `media.py verify` shows it.
 - Cutting on the beat, splicing a track to reach its break or final hit, real sounds from footage: `references/footage.md`.
 - You cannot listen. Say so in the delivery and give the measured numbers (`media.py verify`).
 
