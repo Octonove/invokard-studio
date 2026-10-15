@@ -131,3 +131,13 @@ def test_duration_of_containers_whose_format_name_has_commas(rk, workdir):
     p = str(workdir / 'vo' / 'v.m4a')                                         # format_name: mov,mp4,m4a,3gp,3g2,mj2
     subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=1.5', '-c:a', 'aac', p], check=True)
     assert rk.duration('vo/v.m4a') == pytest.approx(1.5, abs=0.05)
+
+@needs_ffmpeg
+def test_align_excerpts_never_share_a_temporary_file(rk, workdir):
+    import align                                                              # faster-whisper is not needed to cut
+    src = synth_voice(str(workdir / 'vo' / 'song.wav'), ((220, 3.0),))
+    a, b = align.excerpt(src, 0.5, 1.0), align.excerpt(src, 1.0, 1.5)        # was always <tmp>/align_excerpt.wav
+    try:
+        assert a != b and rk.duration(a) == pytest.approx(1.0, abs=0.05) and rk.duration(b) == pytest.approx(1.5, abs=0.05)
+    finally:
+        for p in (a, b): os.remove(p)

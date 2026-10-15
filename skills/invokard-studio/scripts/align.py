@@ -67,6 +67,16 @@ def snap(recognised, reference):
         out.append({'text': w, 'start': round(s, 3), 'end': round(max(e, s + 0.05), 3)})
     return out, unmatched
 
+def excerpt(audio, start=None, dur=None):
+    """A mono 16 kHz wav of audio[start:start+dur] in a temporary file of its own (two runs at once never share one).
+    The caller deletes it."""
+    fd, tmp = tempfile.mkstemp(prefix='align_excerpt_', suffix='.wav'); os.close(fd)
+    cmd = ['ffmpeg', '-v', 'error', '-y'] + (['-ss', str(start)] if start else []) + (['-t', str(dur)] if dur else []) + ['-i', audio, '-ac', '1', '-ar', '16000', tmp]
+    try: subprocess.run(cmd, check=True)
+    except BaseException:
+        os.remove(tmp); raise
+    return tmp
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('audio'); ap.add_argument('--lang', default=None); ap.add_argument('--model', default='small')
@@ -74,15 +84,15 @@ def main():
     ap.add_argument('--start', type=float, default=None); ap.add_argument('--dur', type=float, default=None)
     ap.add_argument('--out', default=None); ap.add_argument('--prompt', default=None, help='vocabulary hint for the recogniser')
     a = ap.parse_args()
-    audio = a.audio
+    audio = tmp = None
     if a.start is not None or a.dur is not None:      # trim first so timings are relative to the excerpt
-        tmp = os.path.join(tempfile.gettempdir(), 'align_excerpt.wav')
-        cmd = ['ffmpeg', '-v', 'error', '-y'] + (['-ss', str(a.start)] if a.start else []) + (['-t', str(a.dur)] if a.dur else []) + ['-i', audio, '-ac', '1', '-ar', '16000', tmp]
-        subprocess.run(cmd, check=True); audio = tmp
+        audio = tmp = excerpt(a.audio, a.start, a.dur)
     text = a.text
     if text and os.path.exists(text): text = open(text, encoding='utf-8').read()
     prompt = a.prompt or (text[:600] if text else None)
-    rec, meta = transcribe(audio, a.lang, a.model, prompt)
+    try: rec, meta = transcribe(audio or a.audio, a.lang, a.model, prompt)
+    finally:
+        if tmp and os.path.exists(tmp): os.remove(tmp)
     if text: words, unmatched = snap(rec, ' '.join(text.split()))
     else: words, unmatched = rec, 0
     meta.update({'words': words, 'unmatched': unmatched, 'recognised': ' '.join(w['text'] for w in rec)})
