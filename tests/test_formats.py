@@ -109,3 +109,28 @@ def test_render_in_other_formats(rk, workdir, fmt, size):
     out = reel.render('out/f.mp4', 1.5, preset='ultrafast')
     assert probe(out, 'stream=width,height')[0] == size
     reel.cover(1.0, 'out/cover.jpg'); assert Image.open(rk.P('out/cover.jpg')).size == (rk.W, rk.H)
+
+@needs_ffmpeg
+def test_media_frames_and_extract_follow_the_format(workdir):
+    portrait, landscape = str(workdir / 'portrait.mp4'), str(workdir / 'vid' / 'wide.mp4')
+    ff('-f', 'lavfi', '-i', 'testsrc2=size=360x640:rate=30:duration=0.6', portrait)
+    ff('-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:duration=0.6', landscape)
+    media = [sys.executable, os.path.join(SCRIPTS, 'media.py')]
+    env = {k: v for k, v in os.environ.items() if k not in ('REELKIT_FORMAT', 'REELKIT_LANDSCAPE')}
+    def run(*args): r = subprocess.run(media + list(args), capture_output=True, text=True, env=env); assert r.returncode == 0, r.stdout + r.stderr; return r.stdout
+    assert '(fit)' in run('extract', str(workdir), 'p16', portrait, '0', '0.5', '--format', '16:9')    # portrait clip on a 16:9 reel
+    assert '(fill)' in run('extract', str(workdir), 'w16', landscape, '0', '0.5', '--format=16:9')
+    assert '(fit)' in run('extract', str(workdir), 'w9', landscape, '0', '0.5')                         # default 9:16, as before
+    run('frames', str(workdir), 'wide', '--format', 'square')
+    sizes = {n: Image.open(workdir / 'frames' / n / '0001.jpg').size for n in ('p16', 'w16', 'w9', 'wide')}
+    assert sizes == {'p16': (1920, 1080), 'w16': (1920, 1080), 'w9': (1080, 1920), 'wide': (1080, 1080)}
+
+def test_new_reel_writes_the_format(tmp_path):
+    dest = tmp_path / 'wide'
+    r = subprocess.run([sys.executable, os.path.join(SCRIPTS, 'new_reel.py'), str(dest), '--format', '16:9'], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    src = (dest / 'reel.py').read_text(encoding='utf-8')
+    assert "rk.set_format('16:9')" in src and src.index('rk.set_format') < src.index('from reelkit import W, H')
+    compile(src, 'reel.py', 'exec')
+    r = subprocess.run([sys.executable, os.path.join(SCRIPTS, 'new_reel.py'), str(tmp_path / 'x'), '--format', '4:5'], capture_output=True, text=True)
+    assert r.returncode == 1 and 'Unknown format' in r.stdout and not (tmp_path / 'x').exists()
