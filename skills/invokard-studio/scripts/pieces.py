@@ -74,6 +74,7 @@ def bottom_gradient(b, y0=None, strength=0.94):
     im = Image.new('RGBA', (rk.W, rk.H), b.dark_deep + (0,))
     im.putalpha(Image.fromarray((np.repeat(ramp[:, None], rk.W, axis=1) * 255).astype(np.uint8))); return im
 
+@rk.memo_image
 def fit_pill(text, maxw, size, **kw):
     """A pill that shrinks its type until it fits maxw (never below 30 px: unreadable on a phone)."""
     while True:

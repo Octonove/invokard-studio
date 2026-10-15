@@ -163,6 +163,18 @@ def gradient(top, bottom, w=None, h=None):
     return Image.fromarray(np.repeat(arr, w, axis=1).astype(np.uint8), 'RGB')
 
 # ---------------------------------------------------------------- drawing primitives
+def memo_image(fn):
+    """Cache an image builder (text, pills): layers rebuild the same label on every frame, and each build blurs a
+    shadow. Callers get a copy, so drawing on the result never alters the cache. Unhashable arguments skip the cache."""
+    cached = functools.lru_cache(maxsize=256)(fn)
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        try: im = cached(*a, **kw)
+        except TypeError: return fn(*a, **kw)         # a list as a colour, say
+        return im.copy()
+    wrapper.cache_clear = cached.cache_clear
+    return wrapper
+
 def blit(canvas, img, x, y, scale=1.0, alpha=1.0, anchor='c', rot=0.0):
     """Composite an RGBA image on the canvas at (x, y) with scale, opacity, anchor (c tl tc bc lc rc) and rotation."""
     if img is None or alpha <= 0.004 or scale <= 0.01: return
@@ -202,6 +214,7 @@ def rrect(w, h, r, fill, outline=None, width=0):
     ImageDraw.Draw(im).rounded_rectangle((0, 0, w - 1, h - 1), r, fill=fill, outline=outline, width=width)
     return im
 
+@memo_image
 def text_img(text, kind, size, fill=WHITE, stroke=0, stroke_fill=INK, tracking=0, shadow=0):
     """Text rendered on a transparent image (kind: black extrabold bold semi reg display serif serifi)."""
     f = font(kind, size); asc, desc = f.getmetrics(); pad = stroke + 4
@@ -229,6 +242,7 @@ def emoji_img(ch, size):
     if im.height > size * 1.1: im = im.resize((round(im.width * size / im.height), size), Image.LANCZOS)
     return im
 
+@memo_image
 def pill(text, kind='bold', size=40, fg=WHITE, bg=CORAL, padx=28, pady=12, r=None, tracking=0, dot=None, shadow=16):
     """Rounded label with optional leading dot and shadow."""
     t = text_img(text, kind, size, fg, tracking=tracking)
@@ -254,6 +268,16 @@ def wrap(text, kind, size, maxw):
     return lines
 
 # ---------------------------------------------------------------- frame sources
+LEGACY_RESAMPLE = False   # True: zooms and pans resample with the affine transform of 1.0.0 (same pixels, ~4x slower)
+
+def view(im, a, x0, y0, vw, vh):
+    """The vw x vh window of im at (x0, y0), scaled to the canvas (a = vw / W). A resize with a box is ~4x faster than
+    the affine transform and as sharp; a window that leaves the image (zoom below 1) keeps the transform, black outside."""
+    sw, sh = im.size
+    if LEGACY_RESAMPLE or x0 < -0.5 or y0 < -0.5 or x0 + vw > sw + 0.5 or y0 + vh > sh + 0.5:
+        return im.transform((W, H), Image.AFFINE, (a, 0, x0, 0, a, y0), resample=Image.BICUBIC)
+    return im.resize((W, H), Image.BICUBIC, box=(max(0.0, x0), max(0.0, y0), min(sw, x0 + vw), min(sh, y0 + vh)))
+
 class Still:
     """A still image with a slow zoom (z=(start, end) scale) and a moving focal point (c0 -> c1, in 0..1)."""
     def __init__(self, path, z=(1.0, 1.06), c0=(.5, .5), c1=None, crop=None, fx=None):
@@ -264,14 +288,17 @@ class Still:
         k = s0 * zmax
         self.im = im.resize((round(sw * k), round(sh * k)), Image.LANCZOS)
         self.s0 = 1 / zmax; self.z = z; self.c0 = c0; self.c1 = c1 or c0
+        self.static = z[0] == z[1] and tuple(self.c0) == tuple(self.c1); self.cached = None   # no motion: one frame
     def frame(self, t, dur):
+        if self.static and self.cached and self.cached[0] == (W, H, LEGACY_RESAMPLE): return self.cached[1].copy()
         p = clamp01(t / dur) if dur > 0 else 0
         s = self.s0 * lerp(self.z[0], self.z[1], p)
         sw, sh = self.im.size; vw, vh = W / s, H / s
         cx = lerp(self.c0[0], self.c1[0], p) * sw; cy = lerp(self.c0[1], self.c1[1], p) * sh
         cx = min(max(cx, vw / 2), sw - vw / 2); cy = min(max(cy, vh / 2), sh - vh / 2)
-        a = 1 / s
-        return self.im.transform((W, H), Image.AFFINE, (a, 0, cx - vw / 2, 0, a, cy - vh / 2), resample=Image.BICUBIC)
+        im = view(self.im, 1 / s, cx - vw / 2, cy - vh / 2, vw, vh)
+        if self.static: self.cached = ((W, H, LEGACY_RESAMPLE), im.copy())
+        return im
 
 class Clip:
     """Frames of a video clip extracted to frames/<name>/0001.jpg... (see `media.py frames` / `media.py extract`).
@@ -301,8 +328,7 @@ class Clip:
         if abs(zz - 1) > 1e-3:
             vw, vh = W / zz, H / zz; cx, cy = self.c[0] * W, self.c[1] * H
             cx = min(max(cx, vw / 2), W - vw / 2); cy = min(max(cy, vh / 2), H - vh / 2)
-            a = 1 / zz
-            im = im.transform((W, H), Image.AFFINE, (a, 0, cx - vw / 2, 0, a, cy - vh / 2), resample=Image.BICUBIC)
+            im = view(im, 1 / zz, cx - vw / 2, cy - vh / 2, vw, vh)
         if self.fx: im = self.fx(im, t)
         return im
 
@@ -372,11 +398,17 @@ def beat_grid(path, t0=0.0, t1=None, bpm_range=(80, 160), step=0.02):
     fps = sr / hop; off = n / 2 / sr; best = None
     for bpm in np.arange(bpm_range[0], bpm_range[1], step):
         b = 60 / bpm
-        for ph in np.arange(0, b, 0.004):
-            ts = np.arange(t0 + ph, t1, b); idx = ((ts - off) * fps).astype(int).clip(0, len(fl) - 1)
+        starts = t0 + np.arange(0, b, 0.004)                     # one candidate grid per phase, all scored at once
+        counts = np.ceil((t1 - starts) / b).astype(int)           # len(np.arange(start, t1, b)) of each phase
+        sc = np.empty(len(starts))
+        for cnt in np.unique(counts):
+            rows = np.flatnonzero(counts == cnt); st = starts[rows][:, None]; k = np.arange(cnt)[None, :]
+            ts = np.where(k == 0, st, np.where(k == 1, st + b, st + k * ((st + b) - st)))   # what np.arange computes
+            idx = ((ts - off) * fps).astype(int).clip(0, len(fl) - 1)
             idx2 = ((ts + b / 2 - off) * fps).astype(int).clip(0, len(fl) - 1)
-            sc = fl[idx].mean() + 0.5 * fl[idx2].mean()
-            if best is None or sc > best[0]: best = (sc, bpm, t0 + ph)
+            sc[rows] = fl[idx].mean(axis=1) + 0.5 * fl[idx2].mean(axis=1)
+        i = int(np.argmax(sc))                                     # first best phase, as the old loop kept it
+        if best is None or sc[i] > best[0]: best = (sc[i], bpm, starts[i])
     return round(best[1], 2), 60 / best[1], round(best[2], 3)
 
 # ---------------------------------------------------------------- word-by-word captions
