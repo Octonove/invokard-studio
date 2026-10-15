@@ -116,3 +116,18 @@ def test_elevenlabs_words_from_alignment():
     assert words_from_alignment(chars, t, [x + 0.08 for x in t]) == [
         {'text': 'Hola', 'start': 0.0, 'end': 0.38}, {'text': 'mundo.', 'start': 0.6, 'end': 1.18}]
     assert words_from_alignment([], [], []) == []
+
+@needs_ffmpeg
+def test_raw_aac_duration_is_measured_not_estimated(rk, workdir):
+    # ADTS .aac has no index: ffprobe estimates the duration from the bitrate, and silences throw it off (3.43 s here)
+    p = str(workdir / 'vo' / 'v.aac')
+    synth_voice(str(workdir / 'vo' / 'v.wav'), ((None, 0.6), (220, 0.8), (None, 0.9), (330, 0.9)))
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', str(workdir / 'vo' / 'v.wav'), '-c:a', 'aac', p], check=True)
+    assert rk.duration('vo/v.aac') == pytest.approx(3.2, abs=0.05)
+    assert rk.duration('vo/v.wav') == pytest.approx(3.2, abs=0.01)           # other formats keep ffprobe's exact value
+
+@needs_ffmpeg
+def test_duration_of_containers_whose_format_name_has_commas(rk, workdir):
+    p = str(workdir / 'vo' / 'v.m4a')                                         # format_name: mov,mp4,m4a,3gp,3g2,mj2
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=1.5', '-c:a', 'aac', p], check=True)
+    assert rk.duration('vo/v.m4a') == pytest.approx(1.5, abs=0.05)

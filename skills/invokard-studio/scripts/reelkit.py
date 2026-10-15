@@ -344,9 +344,15 @@ def duration(path):
 
 @functools.lru_cache(None)
 def _duration(path, mtime):
-    r = subprocess.run([tool('ffprobe'), '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path], capture_output=True, text=True)
-    try: return float(r.stdout.strip())
-    except ValueError: raise RuntimeError(f'ffprobe could not read the duration of {path}: {(r.stderr or r.stdout).strip()[:300]}') from None
+    r = subprocess.run([tool('ffprobe'), '-v', 'error', '-show_entries', 'format=duration,format_name', '-of', 'default=nw=1', path], capture_output=True, text=True)
+    fields = dict(line.split('=', 1) for line in r.stdout.splitlines() if '=' in line)     # format_name can hold commas
+    if fields.get('format_name') == 'aac' or fields.get('duration') in (None, '', 'N/A'):
+        # raw ADTS .aac (or no duration at all): ffprobe's figure is a bitrate estimate, off by 0.2 s on speech with
+        # pauses. Decode and count the samples instead.
+        raw = subprocess.run([tool('ffmpeg'), '-v', 'error', '-i', path, '-ac', '1', '-ar', '8000', '-f', 's16le', '-'], capture_output=True)
+        if raw.returncode == 0 and raw.stdout: return len(raw.stdout) / 2 / 8000
+    try: return float(fields['duration'])
+    except (KeyError, ValueError): raise RuntimeError(f'ffprobe could not read the duration of {path}: {(r.stderr or r.stdout).strip()[:300]}') from None
 
 def speech_segments(path, noise='-38dB', d=0.1):
     """(start, end) spans with voice, from ffmpeg silencedetect. Phrase timings and cuts derive from these."""
