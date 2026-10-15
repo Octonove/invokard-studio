@@ -1,5 +1,5 @@
 # Installer and skill-format tests.
-import os, re, sys, subprocess, tempfile
+import os, re, sys, shutil, subprocess, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKILL = os.path.join(ROOT, 'skills', 'invokard-studio')
@@ -52,6 +52,14 @@ def test_link_install_and_uninstall():
         r = subprocess.run([sys.executable, os.path.join(ROOT, 'install.py'), 'uninstall', '--project', tmp], capture_output=True, text=True)
         assert r.returncode == 0 and not os.path.lexists(t), r.stdout
         assert os.path.exists(os.path.join(SKILL, 'SKILL.md'))                                 # the source survived
+
+def test_media_doctor_runs_from_an_installed_copy():
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run([sys.executable, os.path.join(ROOT, 'install.py'), '--project', tmp, '--agents', 'claude'], capture_output=True, check=True)
+        media = os.path.join(tmp, '.claude', 'skills', 'invokard-studio', 'scripts', 'media.py')     # no install.py there
+        r = subprocess.run([sys.executable, media, 'doctor'], capture_output=True, text=True, env={**os.environ, 'PYTHONIOENCODING': 'utf-8'})
+        assert 'ffmpeg' in r.stdout and 'font black' in r.stdout and 'MAGNIFIC_API_KEY' in r.stdout, r.stdout + r.stderr
+        assert r.returncode == (0 if shutil.which('ffmpeg') and shutil.which('ffprobe') else 1)
 
 def test_doctor_runs():
     r = subprocess.run([sys.executable, os.path.join(ROOT, 'install.py'), 'doctor'], capture_output=True, text=True, env={**os.environ, 'PYTHONIOENCODING': 'utf-8'})

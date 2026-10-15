@@ -34,8 +34,8 @@ check that a machine can render, and a short reel.py that also shows 16:9.
 ## 0. Check the machine (30 seconds)
 
 ```bash
-python <skill>/scripts/../../../install.py doctor        # from the repo; or:
-python <skill>/scripts/media.py fonts                   # reports fonts; downloads the emoji font if missing
+python <skill>/scripts/media.py doctor                  # python, ffmpeg, packages, fonts, format, keys (names only)
+python <skill>/scripts/media.py fonts                   # downloads the emoji font if missing
 ffmpeg -version && ffprobe -version
 ```
 

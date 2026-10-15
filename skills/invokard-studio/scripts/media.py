@@ -238,9 +238,40 @@ def fonts_cmd():
     fonts.FONTS.clear()
     for k, v in fonts.status().items(): print(f'{k:10s} {v}')
 
+def doctor():
+    """Check this machine from the skill folder itself (an installed copy has no install.py): python, ffmpeg, packages, fonts, keys (names only)."""
+    import shutil
+    bad = []
+    def row(label, value, ok=True):
+        if ok is False: bad.append(label)
+        print(f'  {"--" if ok is None else "ok" if ok else "!!"} {label:16s} {value}')
+    v = sys.version_info; row('python', f'{v.major}.{v.minor}.{v.micro}', v >= (3, 10))
+    for t in ('ffmpeg', 'ffprobe'):
+        p = shutil.which(t)
+        row(t, subprocess.run([p, '-version'], capture_output=True, text=True).stdout.split(' Copyright')[0] if p else
+            'NOT FOUND: install ffmpeg (references/troubleshooting.md)', bool(p))
+    for mod, pkg in (('PIL', 'Pillow'), ('numpy', 'numpy'), ('requests', 'requests')):
+        try: row(pkg, getattr(__import__(mod), '__version__', 'present'))
+        except ImportError: row(pkg, 'missing: python -m pip install Pillow numpy requests', False)
+    try:
+        import fonts
+        for k, p in fonts.status().items():
+            missing = 'MISSING' in p or 'missing' in p
+            row(f'font {k}', os.path.basename(p) if not missing else p, None if k == 'emoji' and missing else not missing)
+    except Exception as e: row('fonts', str(e), False)
+    try:
+        import reelkit as rk; row('format', f'{rk.FORMAT} ({rk.W}x{rk.H}); REELKIT_FORMAT or --format to change', None)
+    except Exception as e: row('reelkit', str(e), False)
+    sys.path.insert(0, os.path.join(HERE, 'providers')); from env import has
+    for key in ('MAGNIFIC_API_KEY', 'ELEVENLABS_API_KEY'):
+        row(key, 'set' if has(key) else 'missing (optional; see .env.example)', True if has(key) else None)
+    print('\n' + ('All good.' if not bad else 'Fix the lines marked !!: ' + ', '.join(bad)))
+    return 1 if bad else 0
+
 COMMANDS = {'download': download, 'frames': frames, 'extract': extract, 'sheet-img': sheet_img, 'sheet-motion': sheet_motion,
             'sheet-footage': sheet_footage, 'voice': voice, 'beats': beats, 'energy': energy, 'splice': splice, 'sound': sound,
-            'silence': silence, 'compare': compare, 'verify': verify, 'frame': frame, 'web': web, 'gif': gif, 'fonts': fonts_cmd}
+            'silence': silence, 'compare': compare, 'verify': verify, 'frame': frame, 'web': web, 'gif': gif, 'fonts': fonts_cmd,
+            'doctor': doctor}
 def usage(name):
     """One line with the arguments of a command: required, [optional], [repeated...]."""
     ps = []
@@ -266,13 +297,12 @@ def main(argv):
     except TypeError:
         print(f'usage: {usage(cmd)}\n\n{COMMANDS[cmd].__doc__.strip()}'); return 2
     import shutil
-    missing = [t for t in (('curl',) if cmd in ('download', 'fonts') else () if cmd in ('sheet-img', 'sheet-motion') else ('ffmpeg', 'ffprobe'))
+    missing = [t for t in (('curl',) if cmd in ('download', 'fonts') else () if cmd in ('sheet-img', 'sheet-motion', 'doctor') else ('ffmpeg', 'ffprobe'))
                if not shutil.which(t)]
     if missing:
         print(f'{" and ".join(missing)} not found on PATH. Install {"curl" if missing == ["curl"] else "ffmpeg (it includes ffprobe)"}, '
               'reopen the terminal and check with `python install.py doctor` (references/troubleshooting.md).'); return 1
-    COMMANDS[cmd](*rest)
-    return 0
+    return COMMANDS[cmd](*rest) or 0
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:]))

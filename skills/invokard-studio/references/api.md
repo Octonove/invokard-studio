@@ -121,6 +121,7 @@ arguments prints the command's usage.
 | `web` | mp4 [out] [height] [crf] | 720p delivery copy (720x1280, 1280x720 or 720x720) |
 | `gif` | mp4 [out] [width] [fps] [start] [dur] | GIF preview |
 | `fonts` | | Download the emoji font, report all fonts |
+| `doctor` | | Python, ffmpeg, packages, fonts, format, keys (names only); works from an installed copy of the skill |
 
 ## align.py
 

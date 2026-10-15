@@ -9,7 +9,8 @@
 ## ffmpeg / ffprobe not found
 - Windows: `winget install Gyan.FFmpeg` (or download the "full" build from gyan.dev and add its `bin` to PATH).
 - macOS: `brew install ffmpeg`. Linux: `sudo apt install ffmpeg` (≥ 5). Reopen the terminal / restart the agent so
-  the new PATH is inherited. `install.py doctor` shows the version it finds.
+  the new PATH is inherited. `install.py doctor` (repository) or `scripts/media.py doctor` (any copy of the skill)
+  shows the version it finds.
 - The engine needs `libx264`, `loudnorm`, `sidechaincompress`, `alimiter`, `silencedetect`, `ebur128`: all in the
   standard builds. No libass is required (captions are drawn by the engine, not by ffmpeg).
 
