@@ -79,16 +79,21 @@ the REST helper covers Kling 2.5/2.6 image-to-video (`providers/magnific.py vide
 - Then `caps.from_words('k', align.load_words(path), t0)` where `t0` is where that audio starts in the reel. Mark
   highlights by editing the JSON `text` fields (`*word*`).
 
-## Composition and safe zones (1080x1920 canvas)
+## Composition and safe zones (1080x1920 canvas; 16:9 and 1:1 below)
 
 - Instagram covers ≈220 px at the top and ≈360 px at the bottom. Headlines and chips between y=230 and y=520; captions
   at y≈1440; nothing important below y≈1560. Minimum type 30 px (secondary chips 36-44, headlines 70+).
+- **16:9 (1920x1080) and 1:1 (1080x1080).** `rk.set_format('16:9')` first (or `new_reel.py --format 16:9`). The
+  height is 1080, so everything is tighter: headlines from y≈110, captions at y≈880 with size 60-64, nothing important
+  below y≈1000; 16:9 gives room to the sides (text up to 1400-1500 px wide). The pieces take these defaults from
+  `rk.LAYOUT`. Ask for images in the reel's shape (`aspectRatio "16:9"`, `widescreen_16_9` on REST); a square image
+  fills every format. Screenshots read best in `pieces.browser_frame()` or `pieces.phone_frame()`.
 - On white-background illustrations, white captions need `pieces.bottom_gradient(B)` as the FIRST layer.
 - Item framing: `source(k, img, start=0.25, z=(1.14, 1.24), c=(.5, .46))` lifts the subject and leaves room for the
   benefit at y≈1262. `Still(img, z=(2.0, 2.3), c0=(x, y))` reframes a detail without generating anything.
 - The cover comes from `reel.cover(t, path)`; in the feed it is cropped to 4:5 through the centre.
 - Landscape stills or clips: fit them 1420 px wide over their own blurred copy (`media.py extract … fit`) rather than
-  cropping. A pan across a landscape artwork: `Still(path, z=(1.0, 1.0), c0=(.3, .5), c1=(.7, .5))`.
+  cropping. On a 16:9 reel it is the other way round: portrait clips are fitted at full height over their blur. A pan across a landscape artwork: `Still(path, z=(1.0, 1.0), c0=(.3, .5), c1=(.7, .5))`.
 
 ## Audio
 

@@ -1,4 +1,6 @@
 # Core engine: Pillow composes the frames, numpy does the audio analysis, requests talks to the provider APIs.
-Pillow>=10.0
-numpy>=1.24
-requests>=2.31
+# Lower bounds are the oldest versions tested (Python 3.10, Pillow 10.0, numpy 1.24); the caps keep a new major
+# release from arriving untested. CI runs the newest versions the ranges allow.
+Pillow>=10.0,<13
+numpy>=1.24,<3
+requests>=2.31,<3

@@ -4,7 +4,7 @@ import os, math, functools
 import numpy as np
 from PIL import Image, ImageDraw
 import reelkit as rk
-from reelkit import W, H, P, blit, text_img, pill, rrect, shadowed, font, blurred, cover_cached, lerp, clamp01, eo, eio, eback, Func, emoji_img
+from reelkit import P, blit, text_img, pill, rrect, shadowed, font, blurred, cover_cached, lerp, clamp01, eo, eio, eback, Func, emoji_img
 
 ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets')
 
@@ -66,12 +66,15 @@ def source(name, img, **kw):
         return rk.Clip(name, **{k: v for k, v in kw.items() if k in ('speed', 'start', 'z', 'c')})
     return rk.Still(img, z=kw.get('z', (1.0, 1.05)), c0=kw.get('c', (.5, .5)))
 
-def bottom_gradient(b, y0=1100, strength=0.94):
-    """Dark veil over the lower third so white captions read on light backgrounds. Add it as the FIRST layer."""
-    ramp = np.clip((np.arange(H) - y0) / (H - y0), 0, 1) ** 1.2 * strength
-    im = Image.new('RGBA', (W, H), b.dark_deep + (0,))
-    im.putalpha(Image.fromarray((np.repeat(ramp[:, None], W, axis=1) * 255).astype(np.uint8))); return im
+def bottom_gradient(b, y0=None, strength=0.94):
+    """Dark veil over the lower third so white captions read on light backgrounds. Add it as the FIRST layer.
+    y0: where it starts (default: the format's LAYOUT, 1100 on 9:16)."""
+    y0 = rk.LAYOUT['gradient_y0'] if y0 is None else y0
+    ramp = np.clip((np.arange(rk.H) - y0) / (rk.H - y0), 0, 1) ** 1.2 * strength
+    im = Image.new('RGBA', (rk.W, rk.H), b.dark_deep + (0,))
+    im.putalpha(Image.fromarray((np.repeat(ramp[:, None], rk.W, axis=1) * 255).astype(np.uint8))); return im
 
+@rk.memo_image
 def fit_pill(text, maxw, size, **kw):
     """A pill that shrinks its type until it fits maxw (never below 30 px: unreadable on a phone)."""
     while True:
@@ -93,7 +96,7 @@ def mix(c1, c2, a): return tuple(int(lerp(u, v, a)) for u, v in zip(c1, c2))
 
 def flash(canvas, tl, dur=0.22, color=(255, 255, 255)):
     a = clamp01(1 - tl / dur)
-    if a > 0.01: blit(canvas, Image.new('RGBA', (W, H), color + (int(235 * a),)), W / 2, H / 2)
+    if a > 0.01: blit(canvas, Image.new('RGBA', (rk.W, rk.H), color + (int(235 * a),)), rk.W / 2, rk.H / 2)
 
 def appear(c, img, x, y, t, t0, anchor='c', dur=0.32):
     """Draw img with an elastic entrance starting at second t0."""
@@ -115,10 +118,13 @@ def ring(canvas, cx, cy, r, p, color, width=7, dash=False, alpha=1.0):
         d.arc(box, -90, -90 + 360 * clamp01(p), fill=color + (255,), width=width)
     blit(canvas, im, cx, cy, alpha=alpha)
 
-@functools.lru_cache(None)
 def photo_card(path, w, h, crop=None, border=0, radius=28, cx=.5, cy=.4):
     """Rounded thumbnail with optional white border and shadow (mosaics, end cards)."""
-    im = cover_cached(path, w, h, cx, cy, crop).convert('RGBA')
+    return _photo_card(rk.source_key(path), w, h, crop, border, radius, cx, cy)
+
+@functools.lru_cache(None)
+def _photo_card(key, w, h, crop, border, radius, cx, cy):
+    im = rk.cover_key(key, w, h, cx, cy, crop).convert('RGBA')
     mask = Image.new('L', (w, h), 0); ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, h - 1), radius, fill=255); im.putalpha(mask)
     if border:
         out = rrect(w + 2 * border, h + 2 * border, radius + border // 2, (255, 255, 255, 255)); out.alpha_composite(im, (border, border)); im = out
@@ -134,10 +140,11 @@ def chip(txt, size=40, style='glass', b=None, dot=None):
 
 # ------------------------------------------------------------------ text block with highlighted phrases (no voice needed)
 _blocks = {}
-def text_block(txt, size=84, maxw=950, box=None, text=(255, 255, 255), stroke=(18, 22, 20), kind='black'):
+def text_block(txt, size=84, maxw=None, box=None, text=(255, 255, 255), stroke=(18, 22, 20), kind='black'):
     """On-screen text (hook lines, client scripts) laid out in centred lines. Words between *asterisks* share one
     rounded box in `box` colour (default: the caption highlight); a highlighted run never breaks across lines.
-    Emoji render in colour. The type shrinks in steps of 4 until the block fits maxw."""
+    Emoji render in colour. The type shrinks in steps of 4 until the block fits maxw (default: LAYOUT, 950 on 9:16)."""
+    maxw = maxw or rk.LAYOUT['text_maxw']
     box = tuple(box or rk.HL_BG); key = (txt, size, maxw, box, text, stroke, kind)
     if key in _blocks: return _blocks[key]
     toks, hl, words = txt.split(' '), False, []
@@ -188,41 +195,47 @@ def text_block(txt, size=84, maxw=950, box=None, text=(255, 255, 255), stroke=(1
     _blocks[key] = canvas
     return canvas
 
-def text_layer(txt, y=470, size=84, maxw=950, pop=0.28, fade_out=0.14, **kw):
-    """Layer that pops a text_block in (elastic scale) and fades it out at the end of its range."""
+def text_layer(txt, y=None, size=84, maxw=None, pop=0.28, fade_out=0.14, **kw):
+    """Layer that pops a text_block in (elastic scale) and fades it out at the end of its range. y defaults to LAYOUT
+    (470 on 9:16)."""
+    y = rk.LAYOUT['text_y'] if y is None else y
     img = text_block(txt, size, maxw, **kw)
     def f(c, tl, dur, t):
         a = clamp01(tl / 0.18) * (1 - clamp01((tl - (dur - fade_out)) / fade_out))
         s = lerp(0.86, 1.0, eback(clamp01(tl / pop)))
-        blit(c, img, W // 2, y, scale=s, alpha=a)
+        blit(c, img, rk.W // 2, y, scale=s, alpha=a)
     return f
 
 
 # ------------------------------------------------------------------ hook headline
-def headline(b, kicker, line, highlight, y=236):
-    """Layer: kicker in a pill + line + key phrase in an accent pill. Safe zone at the top (y >= 220)."""
+def headline(b, kicker, line, highlight, y=None):
+    """Layer: kicker in a pill + line + key phrase in an accent pill. Safe zone at the top (9:16: y >= 220; default
+    from LAYOUT, 236 on 9:16)."""
+    y = rk.LAYOUT['top'] if y is None else y; maxw = rk.LAYOUT['pill_maxw']
     def f(c, tl, dur, t):
-        blit(c, pill(kicker, 'black', 32, b.white, b.dark, padx=26, pady=12, tracking=3, shadow=12), W / 2, y,
+        blit(c, pill(kicker, 'black', 32, b.white, b.dark, padx=26, pady=12, tracking=3, shadow=12), rk.W / 2, y,
              lerp(0.85, 1, eback(clamp01(tl / 0.35))), clamp01((tl - 0.05) / 0.25))
-        blit(c, text_img(line, 'black', 74, b.dark), W / 2, y + 94, lerp(1.05, 1, eo(tl / 0.5)), clamp01((tl - 0.12) / 0.25))
-        blit(c, fit_pill(highlight, 900, 84, fg=b.accent_text, bg=b.accent, padx=34, pady=12, r=24, shadow=20), W / 2, y + 208,
+        blit(c, text_img(line, 'black', 74, b.dark), rk.W / 2, y + 94, lerp(1.05, 1, eo(tl / 0.5)), clamp01((tl - 0.12) / 0.25))
+        blit(c, fit_pill(highlight, maxw, 84, fg=b.accent_text, bg=b.accent, padx=34, pady=12, r=24, shadow=20), rk.W / 2, y + 208,
              lerp(0.7, 1, eback(clamp01((tl - 0.25) / 0.45))), clamp01((tl - 0.22) / 0.2))
     return f
 
-def hook(b, line, highlight, y=300, size=72):
-    """Layer: white line with shadow + accent pill below (for photo/video backgrounds)."""
+def hook(b, line, highlight, y=None, size=72):
+    """Layer: white line with shadow + accent pill below (for photo/video backgrounds). y defaults to LAYOUT (300 on 9:16)."""
+    y = rk.LAYOUT['hook_y'] if y is None else y; maxw = rk.LAYOUT['pill_maxw'] + 40
     def f(c, tl, dur, t):
-        blit(c, text_img(line, 'black', size, b.white, shadow=12), W / 2, y, lerp(1.05, 1, eo(tl / 0.6)), clamp01((tl - 0.08) / 0.3))
-        blit(c, fit_pill(highlight, 940, size, fg=b.accent_text, bg=b.accent, padx=30, pady=14, r=20, shadow=22), W / 2, y + 108,
+        blit(c, text_img(line, 'black', size, b.white, shadow=12), rk.W / 2, y, lerp(1.05, 1, eo(tl / 0.6)), clamp01((tl - 0.08) / 0.3))
+        blit(c, fit_pill(highlight, maxw, size, fg=b.accent_text, bg=b.accent, padx=30, pady=14, r=20, shadow=22), rk.W / 2, y + 108,
              lerp(0.9, 1, eback(clamp01((tl - 0.15) / 0.45))), clamp01((tl - 0.12) / 0.25))
     return f
 
 def section_label(b, n, txt):
     """Layer: «n · TEXT» pill at the top (safe zone)."""
     im = pill(f'{n} · {txt}' if n else txt, 'black', 44, b.white, b.dark, padx=34, pady=16, tracking=2, shadow=20)
+    y = rk.LAYOUT['label_y']
     def f(c, tl, dur, t):
         q = clamp01(tl / 0.35)
-        blit(c, im, W / 2, lerp(215, 255, eo(q)), lerp(0.85, 1, eback(q)), clamp01(q * 2))
+        blit(c, im, rk.W / 2, lerp(y - 40, y, eo(q)), lerp(0.85, 1, eback(q)), clamp01(q * 2))
     return f
 
 
@@ -237,13 +250,15 @@ def curve_img(w, h, fn, p, color, width=10, ss=2):
     return im.resize((w, h), Image.LANCZOS)
 
 class Card:
-    """White card at the top with a header, a legend and a baseline. draw() returns the origin of the plot area."""
-    def __init__(self, b, w=940, h=300, x=70, y=215, plot=(56, 92, 828, 176)):
+    """White card at the top with a header, a legend and a baseline. draw() returns the origin of the plot area.
+    x defaults to centred, y to LAYOUT (70 and 215 on 9:16)."""
+    def __init__(self, b, w=940, h=300, x=None, y=None, plot=(56, 92, 828, 176)):
+        x = (rk.W - w) // 2 if x is None else x; y = rk.LAYOUT['card_y'] if y is None else y
         self.b, self.w, self.h, self.x, self.y, self.plot = b, w, h, x, y, plot
         self.img = shadowed(rrect(w, h, 38, (255, 255, 255, 250)), radius=26, offset=(0, 14), opacity=0.30)
     def draw(self, c, p, header, legend=()):
         b, pl = self.b, self.plot; y = lerp(self.y - 60, self.y, eo(p))
-        blit(c, self.img, W / 2, y + self.h / 2, 1, clamp01(p * 1.4))
+        blit(c, self.img, rk.W / 2, y + self.h / 2, 1, clamp01(p * 1.4))
         if p < 0.35: return None
         a = clamp01((p - 0.35) / 0.4)
         blit(c, text_img(header, 'black', 30, b.dark, tracking=3), self.x + pl[0] - 6, y + 28, 1, a, 'tl')
@@ -260,20 +275,23 @@ class Card:
 
 
 # ------------------------------------------------------------------ numbered list item ("the N ...")
-def list_item(b, n, total, name, benefit, y_name=300, y_benefit=1262):
-    """Layer for one item of a list: numbered badge, name in a pill, progress dots and the benefit below."""
+def list_item(b, n, total, name, benefit, y_name=None, y_benefit=None):
+    """Layer for one item of a list: numbered badge, name in a pill, progress dots and the benefit below.
+    Positions default to LAYOUT (300 and 1262 on 9:16)."""
+    y_name = rk.LAYOUT['item_y'] if y_name is None else y_name
+    y_benefit = rk.LAYOUT['benefit_y'] if y_benefit is None else y_benefit
     name_p = fit_pill(name, 760, 58, fg=b.white, bg=b.dark, padx=34, pady=14, shadow=18)
     bd = badge(str(n), b); ben_p = fit_pill(benefit, 900, 40, fg=b.dark_deep, bg=(255, 255, 255, 245), padx=28, pady=13, shadow=16)
     bw, nw = bd.width - 60, name_p.width - 40; gw = bw + 18 + nw
     def f(c, tl, dur, t):
-        q = clamp01(tl / 0.32); x0 = W / 2 - gw / 2
+        q = clamp01(tl / 0.32); x0 = rk.W / 2 - gw / 2
         blit(c, bd, x0 + bw / 2, y_name, lerp(0.3, 1, eback(q)), clamp01(q * 2.5))
         blit(c, name_p, x0 + bw + 18 + nw / 2, y_name, lerp(0.8, 1, eback(clamp01((tl - 0.05) / 0.32))), clamp01((tl - 0.04) / 0.18))
         for k in range(total):
             on = k < n
-            blit(c, disc(22 if on else 16, b.accent if on else b.light_soft), W / 2 + (k - (total - 1) / 2) * 44, y_name + 98, 1, clamp01(tl / 0.2))
+            blit(c, disc(22 if on else 16, b.accent if on else b.light_soft), rk.W / 2 + (k - (total - 1) / 2) * 44, y_name + 98, 1, clamp01(tl / 0.2))
         qb = clamp01((tl - 0.28) / 0.35)
-        if qb > 0: blit(c, ben_p, W / 2, lerp(y_benefit + 30, y_benefit, eo(qb)), 1, qb)
+        if qb > 0: blit(c, ben_p, rk.W / 2, lerp(y_benefit + 30, y_benefit, eo(qb)), 1, qb)
     return f
 
 
@@ -285,37 +303,74 @@ def _handle(b, r=50):
     d.polygon([(c - 12, c - 16), (c - 12, c + 16), (c - 32, c)], fill=b.accent); d.polygon([(c + 12, c - 16), (c + 12, c + 16), (c + 32, c)], fill=b.accent)
     return im
 
-def split_frame(before, after, xw, b, handle=True, y_handle=1000):
+def split_frame(before, after, xw, b, handle=True, y_handle=None):
     """RGBA frame: `after` revealed on the left up to x=xw over `before`, with a white bar and a handle."""
+    y_handle = rk.LAYOUT['handle_y'] if y_handle is None else y_handle
     im = before.copy()
-    if xw > 0: im.paste(after.crop((0, 0, int(xw), H)), (0, 0))
+    if xw > 0: im.paste(after.crop((0, 0, int(xw), rk.H)), (0, 0))
     c = im.convert('RGBA')
-    if 0 < xw < W:
-        ImageDraw.Draw(c).rectangle((int(xw) - 5, 0, int(xw) + 5, H), fill=(255, 255, 255, 235))
+    if 0 < xw < rk.W:
+        ImageDraw.Draw(c).rectangle((int(xw) - 5, 0, int(xw) + 5, rk.H), fill=(255, 255, 255, 235))
         if handle: blit(c, _handle(b), int(xw), y_handle)
     return c
 
-def wipe_scene(before, after, b, hold=0.0, sweep=0.85, labels=('BEFORE', 'AFTER'), y_label=1480, settle=None, y_handle=1000):
+def wipe_scene(before, after, b, hold=0.0, sweep=0.85, labels=('BEFORE', 'AFTER'), y_label=None, settle=None, y_handle=None):
     """Scene (Func): shows `before` for `hold` s (label BEFORE), then a bar sweeps from the left revealing `after`
     (label AFTER). settle=None finishes the wipe; settle=x stops the bar at x for a split screen.
-    before/after: frame sources with .frame(t, dur); line them up so the subject sits in the same place in both."""
+    before/after: frame sources with .frame(t, dur); line them up so the subject sits in the same place in both.
+    y_label and y_handle default to LAYOUT (1480 and 1000 on 9:16)."""
+    y_label = rk.LAYOUT['wipe_label_y'] if y_label is None else y_label
+    y_handle = rk.LAYOUT['handle_y'] if y_handle is None else y_handle
     L_before = pill(labels[0], 'black', 46, (255, 255, 255), (20, 24, 22, 215), padx=32, pady=14, shadow=0)
     L_after = pill(labels[1], 'black', 46, b.accent_text, b.accent, padx=32, pady=14, shadow=0)
     def after_width(tw):                              # pixels of `after` revealed from the left edge
-        target = W if settle is None else settle
+        target = rk.W if settle is None else settle
         return target * eo(clamp01(tw / sweep))
     def scene(t, dur):
         bf = before.frame(t, dur); tw = t - hold
         if tw < 0:
             c = bf.convert('RGBA')
-            blit(c, L_before, W // 2, y_label, lerp(0.85, 1, eback(clamp01((t - 0.15) / 0.3))), clamp01((t - 0.15) / 0.2))
+            blit(c, L_before, rk.W // 2, y_label, lerp(0.85, 1, eback(clamp01((t - 0.15) / 0.3))), clamp01((t - 0.15) / 0.2))
         else:
             xw = after_width(tw); c = split_frame(bf, after.frame(tw, dur - hold), xw, b, y_handle=y_handle)
-            a_b = clamp01((W - xw - 260) / 200); a_a = clamp01((xw - 300) / 200) * (1 - clamp01((t - (dur - 0.25)) / 0.25))
-            if a_b > 0: blit(c, L_before, (xw + W) / 2, y_label, alpha=a_b)
+            a_b = clamp01((rk.W - xw - 260) / 200); a_a = clamp01((xw - 300) / 200) * (1 - clamp01((t - (dur - 0.25)) / 0.25))
+            if a_b > 0: blit(c, L_before, (xw + rk.W) / 2, y_label, alpha=a_b)
             if a_a > 0: blit(c, L_after, xw / 2, y_label, alpha=a_a)
         return c.convert('RGB')
     return Func(scene)
+
+
+# ------------------------------------------------------------------ screenshots in a browser window or a phone
+def _shot(shot):
+    return (shot if isinstance(shot, Image.Image) else rk.load(shot)).convert('RGBA')
+
+def browser_frame(shot, w=1400, url='', bar=(236, 238, 242), radius=22):
+    """A screenshot (path or image) inside a browser window `w` px wide: title bar with three dots and the URL, rounded
+    corners, soft shadow. Returns RGBA; place it with blit/appear. Made for 16:9 product demos."""
+    im = _shot(shot); bh = max(40, w // 28); sh = round(im.height * w / im.width)
+    win = rrect(w, bh + sh, radius, (255, 255, 255, 255)); d = ImageDraw.Draw(win)
+    d.rounded_rectangle((0, 0, w - 1, bh + radius), radius, fill=bar + (255,)); d.rectangle((0, bh, w - 1, bh + radius), fill=(255, 255, 255, 255))
+    for i, col in enumerate(((255, 95, 87), (254, 188, 46), (40, 200, 64))):
+        r = bh // 6; cx = bh // 2 + i * (r * 3); d.ellipse((cx - r, bh // 2 - r, cx + r, bh // 2 + r), fill=col + (255,))
+    if url:
+        t = text_img(url, 'semi', int(bh * 0.42), (90, 96, 110)); uw = min(w // 2, t.width + bh)
+        d.rounded_rectangle(((w - uw) // 2, bh * 0.2, (w + uw) // 2, bh * 0.8), int(bh * 0.3), fill=(255, 255, 255, 255))
+        win.alpha_composite(t.crop((0, 0, min(t.width, uw - 8), t.height)), ((w - min(t.width, uw - 8)) // 2, (bh - t.height) // 2))
+    body = im.resize((w, sh), Image.LANCZOS); mask = Image.new('L', (w, sh), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, -radius, w - 1, sh - 1), radius, fill=255)
+    win.paste(body, (0, bh), mask)
+    return shadowed(win, radius=28, offset=(0, 18), opacity=0.35)
+
+def phone_frame(shot, h=900, body=(18, 18, 22)):
+    """A screenshot (path or image) inside a phone `h` px tall: dark bezel, rounded screen, a camera notch and a soft
+    shadow. Returns RGBA."""
+    im = _shot(shot); bz = max(8, h // 50); r = h // 12
+    sw = round((h - 2 * bz) * 9 / 19.5); w = sw + 2 * bz
+    ph = rrect(w, h, r, body + (255,))
+    scr = rk.cover(im.convert('RGB'), sw, h - 2 * bz); mask = Image.new('L', scr.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, scr.width - 1, scr.height - 1), r - bz, fill=255); ph.paste(scr, (bz, bz), mask)
+    nw = sw // 3; ImageDraw.Draw(ph).rounded_rectangle(((w - nw) // 2, bz + h // 90, (w + nw) // 2, bz + h // 90 + h // 36), h // 72, fill=body + (255,))
+    return shadowed(ph, radius=26, offset=(0, 16), opacity=0.4)
 
 
 # ------------------------------------------------------------------ end cards
@@ -337,11 +392,12 @@ def logo_card(logo, w=860, pad=60, min_h=230, line=None, line_size=50, line_colo
     if accent: ImageDraw.Draw(card).rounded_rectangle((w / 2 - 60, ch - 44, w / 2 + 60, ch - 36), radius=4, fill=accent + (255,))
     return shadowed(card, radius=30, offset=(0, 18), opacity=0.45)
 
-def end_card_layer(card, t_pop=0.2, y=900):
-    """Layer: pops a logo_card in at t_pop (local time). Time it on a music hit."""
+def end_card_layer(card, t_pop=0.2, y=None):
+    """Layer: pops a logo_card in at t_pop (local time). Time it on a music hit. y defaults to LAYOUT (900 on 9:16)."""
+    y = rk.LAYOUT['center_y'] if y is None else y
     def f(c, tl, dur, t):
         a = clamp01((tl - t_pop) / 0.2); s = lerp(0.8, 1.0, eback(clamp01((tl - t_pop) / 0.4)))
-        blit(c, card, W // 2, y, scale=s, alpha=a)
+        blit(c, card, rk.W // 2, y, scale=s, alpha=a)
     return f
 
 def blur_in(src, dur=0.6, delay=0.0, radius=18, dark=0.35, tint=(10, 20, 15)):
@@ -357,36 +413,42 @@ def outro_save(b, background, logo, title='Save this reel', sub='and send it to 
     """Closing scene: logo on a white card + bookmark + title + CTA pill + legal note (tuple of lines)."""
     bg = blurred(background, radius=30, dark=0.80, tint=b.dark_deep)
     card = logo_card(logo, w=860, pad=60); book = _bookmark(b)
+    y_card0, y_card1, y_book, y_title, y_sub, y_cta, y_note, note_dy = rk.LAYOUT['outro_save']
     def scene(t, dur):
         c = bg.copy().convert('RGBA'); q = clamp01(t / 0.45)
-        blit(c, card, W / 2, lerp(360, 400, eo(q)), lerp(0.9, 1, eback(q)), clamp01(q * 2))
+        blit(c, card, rk.W / 2, lerp(y_card0, y_card1, eo(q)), lerp(0.9, 1, eback(q)), clamp01(q * 2))
         qb = clamp01((t - 0.25) / 0.45); pulse = 1 + 0.035 * math.sin(max(0, t - 0.7) * 4.2)
-        blit(c, book, W / 2, 690, lerp(0.4, pulse, eback(qb)), clamp01(qb * 2))
-        blit(c, text_img(title, 'black', 92, b.white, shadow=10), W / 2, 850, lerp(0.9, 1, eo(clamp01((t - 0.35) / 0.4))), clamp01((t - 0.35) / 0.3))
-        blit(c, text_img(sub, 'semi', 46, b.muted, shadow=6), W / 2, 942, 1, clamp01((t - 0.6) / 0.35))
+        blit(c, book, rk.W / 2, y_book, lerp(0.4, pulse, eback(qb)), clamp01(qb * 2))
+        blit(c, text_img(title, 'black', 92, b.white, shadow=10), rk.W / 2, y_title, lerp(0.9, 1, eo(clamp01((t - 0.35) / 0.4))), clamp01((t - 0.35) / 0.3))
+        blit(c, text_img(sub, 'semi', 46, b.muted, shadow=6), rk.W / 2, y_sub, 1, clamp01((t - 0.6) / 0.35))
         if cta:
             qp = clamp01((t - 0.9) / 0.4)
-            blit(c, fit_pill(cta, 900, 54, fg=b.accent_text, bg=b.accent, padx=40, pady=18, shadow=22), W / 2, 1090, lerp(0.8, 1, eback(qp)), clamp01(qp * 2))
+            blit(c, fit_pill(cta, 900, 54, fg=b.accent_text, bg=b.accent, padx=40, pady=18, shadow=22), rk.W / 2, y_cta, lerp(0.8, 1, eback(qp)), clamp01(qp * 2))
         a = clamp01((t - 1.3) / 0.5)
         for i, ln in enumerate(note):
-            blit(c, text_img(ln, 'semi', 30, b.muted), W / 2, 1218 + i * 40, 1, a * 0.85)
+            blit(c, text_img(ln, 'semi', 30, b.muted), rk.W / 2, y_note + i * note_dy, 1, a * 0.85)
         return c.convert('RGB')
     return Func(scene)
 
-def outro_comment(c, tl, b, word, sub, handle, y=1040, prompt='Comment'):
-    """«Comment WORD» block (comment-to-get funnels). Draw inside a scene with a dark background."""
-    blit(c, text_img(prompt, 'black', 96, b.white, shadow=10), W / 2, y - 148, lerp(0.9, 1, eo(tl / 0.5)), clamp01(tl / 0.4))
+def outro_comment(c, tl, b, word, sub, handle, y=None, prompt='Comment'):
+    """«Comment WORD» block (comment-to-get funnels). Draw inside a scene with a dark background. y defaults to LAYOUT
+    (1040 on 9:16)."""
+    y = rk.LAYOUT['comment_y'] if y is None else y; d_prompt, d_sub, d_handle = rk.LAYOUT['comment_dy']
+    blit(c, text_img(prompt, 'black', 96, b.white, shadow=10), rk.W / 2, y + d_prompt, lerp(0.9, 1, eo(tl / 0.5)), clamp01(tl / 0.4))
     pw = pill(word, 'black', 132, b.accent_text, b.accent, padx=44, pady=18, r=26, tracking=4, shadow=26)
     pulse = 1 + 0.012 * math.sin(max(0, tl - 0.5) * 3.4)
-    blit(c, pw, W / 2, y, lerp(0.7, pulse, eback(clamp01((tl - 0.18) / 0.5))), clamp01((tl - 0.15) / 0.3))
-    blit(c, text_img(sub, 'semi', 50, b.muted, shadow=6), W / 2, y + 152, 1, clamp01((tl - 0.5) / 0.4))
-    blit(c, pill(handle, 'semi', 36, b.muted, (255, 255, 255, 26), padx=24, pady=10, dot=b.accent, shadow=0), W / 2, y + 380, 1, clamp01((tl - 0.8) / 0.5))
+    blit(c, pw, rk.W / 2, y, lerp(0.7, pulse, eback(clamp01((tl - 0.18) / 0.5))), clamp01((tl - 0.15) / 0.3))
+    blit(c, text_img(sub, 'semi', 50, b.muted, shadow=6), rk.W / 2, y + d_sub, 1, clamp01((tl - 0.5) / 0.4))
+    blit(c, pill(handle, 'semi', 36, b.muted, (255, 255, 255, 26), padx=24, pady=10, dot=b.accent, shadow=0), rk.W / 2, y + d_handle, 1, clamp01((tl - 0.8) / 0.5))
 
-def outro_fan(b, background, photos, word, sub, handle, size=(300, 420), y_photos=480, y_cta=1130, extra=None):
-    """Closing scene: blurred background + fan of photo cards + «Comment WORD». photos: list of (path, cx, cy[, crop])."""
+def outro_fan(b, background, photos, word, sub, handle, size=None, y_photos=None, y_cta=None, extra=None):
+    """Closing scene: blurred background + fan of photo cards + «Comment WORD». photos: list of (path, cx, cy[, crop]).
+    size, y_photos and y_cta default to LAYOUT ((300, 420), 480 and 1130 on 9:16)."""
+    size = tuple(size or rk.LAYOUT['fan_size'])
+    y_photos = rk.LAYOUT['fan_y'] if y_photos is None else y_photos; y_cta = rk.LAYOUT['fan_cta_y'] if y_cta is None else y_cta
     bg = blurred(background, radius=34, dark=0.72, tint=b.dark_deep)
     cards = [photo_card(f[0], size[0], size[1], crop=(f[3] if len(f) > 3 else None), radius=16, border=12, cx=f[1], cy=f[2]) for f in photos]
-    n = len(cards); xs = [W / 2 + (i - (n - 1) / 2) * (size[0] - 10) for i in range(n)]; rots = [lerp(7, -7, i / max(1, n - 1)) for i in range(n)]
+    n = len(cards); xs = [rk.W / 2 + (i - (n - 1) / 2) * (size[0] - 10) for i in range(n)]; rots = [lerp(7, -7, i / max(1, n - 1)) for i in range(n)]
     def scene(t, dur):
         c = bg.copy().convert('RGBA')
         for i, (im, x, r) in enumerate(zip(cards, xs, rots)):

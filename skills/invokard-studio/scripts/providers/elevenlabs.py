@@ -5,7 +5,7 @@
 #   el.tts('One sentence.', 'vo/v01.mp3')                                   # mp3, default multilingual v2
 #   words = el.tts_timed('Full narration ...', 'vo/narration.mp3')          # also writes vo/narration.words.json
 #   caps.from_words('n', align.load_words('vo/narration.words.json'), t0)
-import os, sys, json, base64, re
+import os, sys, json, base64
 import requests
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from env import secret
@@ -37,18 +37,23 @@ def tts_timed(text, out, voice_id=DEFAULT_VOICE, model='eleven_multilingual_v2',
     if r.status_code != 200: raise RuntimeError(f'ElevenLabs {r.status_code}: {r.text[:300]}')
     d = r.json(); os.makedirs(os.path.dirname(os.path.abspath(out)) or '.', exist_ok=True)
     open(out, 'wb').write(base64.b64decode(d['audio_base64']))
-    al = d.get('alignment') or d.get('normalized_alignment'); chars, t0s, t1s = al['characters'], al['character_start_times_seconds'], al['character_end_times_seconds']
-    words, cur, s0 = [], '', None
-    for ch, a, b in zip(chars, t0s, t1s):
+    al = d.get('alignment') or d.get('normalized_alignment')
+    words = words_from_alignment(al['characters'], al['character_start_times_seconds'], al['character_end_times_seconds'])
+    meta = {'engine': 'elevenlabs', 'model': model, 'voice_id': voice_id, 'words': words, 'unmatched': 0}
+    wp = os.path.splitext(out)[0] + '.words.json'; json.dump(meta, open(wp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+    return [(w['text'], w['start'], w['end']) for w in words]
+
+def words_from_alignment(chars, starts, ends):
+    """Words with timings from ElevenLabs' per-character alignment: [{'text', 'start', 'end'}]; whitespace separates."""
+    words, cur, s0, prev_end = [], '', None, 0.0
+    for ch, a, b in zip(chars, starts, ends):
         if ch.isspace():
             if cur: words.append({'text': cur, 'start': round(s0, 3), 'end': round(prev_end, 3)}); cur, s0 = '', None
             continue
         if s0 is None: s0 = a
         cur += ch; prev_end = b
     if cur: words.append({'text': cur, 'start': round(s0, 3), 'end': round(prev_end, 3)})
-    meta = {'engine': 'elevenlabs', 'model': model, 'voice_id': voice_id, 'words': words, 'unmatched': 0}
-    wp = os.path.splitext(out)[0] + '.words.json'; json.dump(meta, open(wp, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
-    return [(w['text'], w['start'], w['end']) for w in words]
+    return words
 
 if __name__ == '__main__':
     for vid, name, labels in voices()[:40]: print(vid, name, labels.get('language', ''), labels.get('gender', ''), labels.get('accent', ''))

@@ -6,13 +6,14 @@ for _s in (sys.stdout, sys.stderr):                    # Windows consoles defaul
     except Exception: pass
 sys.path.insert(0, os.environ.get('INVOKARD_STUDIO', r'__STUDIO__'))
 import reelkit as rk
+rk.set_format('__FORMAT__')                           # 9:16 Reels/TikTok/Shorts · 16:9 YouTube/LinkedIn · 1:1 feed. Before the next line
 from reelkit import W, H, Reel, Captions, Still, Clip, Func, blit, text_img, pill, lerp, clamp01, eo, eio, eback
 import pieces as pz
 from pieces import source, sfx
 
 HERE = os.path.dirname(os.path.abspath(__file__)); rk.set_base(HERE)
 B = pz.BRANDS['__BRAND__'].activate()                 # or pz.Brand.from_logo('ref/logo.png').activate()
-reel = Reel('reel'); caps = Captions(size=70, y=1440, maxw=920); reel.caps = caps      # captions stay above y≈1560
+reel = Reel('reel'); caps = Captions(size=70, y=1440, maxw=920) if H > W else Captions(size=62); reel.caps = caps   # 9:16: above y≈1560
 
 # ---------------------------------------------------------------- 1 · voice: one file per sentence  (python media.py voice .)
 # Caption syntax:  *word* = highlighted · / = block break · shown|spoken when the text differs from the speech ("40|forty")
@@ -47,7 +48,7 @@ reel.sfx(sfx('chime'), T_END + 0.3, 0.30)
 if __name__ == '__main__':
     os.makedirs(rk.P('review'), exist_ok=True); os.makedirs(rk.P('out'), exist_ok=True)
     if '--preview' in sys.argv:                    # ALWAYS before rendering: contact sheet in review/preview.jpg
-        n = 21; reel.preview([round(TOTAL * (i + 0.5) / n, 2) for i in range(n)], 'review/preview.jpg', cols=7, scale=0.22)
+        n = 21; reel.preview([round(TOTAL * (i + 0.5) / n, 2) for i in range(n)], 'review/preview.jpg', cols=7 if H > W else 4, scale=0.22)
         print('review/preview.jpg')
     else:
         reel.render('out/reel.mp4', TOTAL, music='music/base.mp3', music_gain=0.24)

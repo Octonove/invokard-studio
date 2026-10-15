@@ -1,5 +1,6 @@
-# media — production utilities. Usage:  python media.py <command> ...   (no arguments lists the commands)
-import os, sys, glob, json, subprocess
+# media — production utilities. Usage:  python media.py <command> ... [--format 9:16|16:9|1:1]   (no arguments lists the
+# commands). --format (or REELKIT_FORMAT in the environment) sets the canvas of frames, extract and the review sheets.
+import os, sys, json, inspect, subprocess
 for _s in (sys.stdout, sys.stderr):                    # Windows consoles default to cp1252: an arrow or an emoji would crash print()
     try: _s.reconfigure(encoding='utf-8', errors='replace')
     except Exception: pass
@@ -11,6 +12,25 @@ def _font(size, bold=True):
 def _ff(*args, check=True):
     return subprocess.run(['ffmpeg', '-v', 'error', '-y', *args], check=check)
 
+def _canvas():
+    """(W, H) of the reel format (REELKIT_FORMAT / --format; 1080x1920 by default)."""
+    import reelkit as rk; return rk.W, rk.H
+
+VIDEO_EXT = ('.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi')
+IMAGE_EXT = ('.png', '.jpg', '.jpeg', '.webp')
+AUDIO_EXT = ('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac')
+
+def _files(folder, exts):
+    """Files of a folder with one of the extensions, in any case (IMG_0001.MOV, GX010001.MP4), sorted, no duplicates."""
+    if not os.path.isdir(folder): return []
+    return sorted(os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(exts))
+
+def _videos(sources):
+    """Video files from a mix of files and folders, in order, each once."""
+    out = []
+    for s in sources: out += _files(s, VIDEO_EXT) if os.path.isdir(s) else [s]
+    return list(dict.fromkeys(out))
+
 def download(dest, url):
     """Download with curl (works where Python's TLS store is broken). Skips if the file already exists."""
     if os.path.exists(dest) and os.path.getsize(dest) > 0: print('exists', dest); return
@@ -19,19 +39,23 @@ def download(dest, url):
     print(('ok ' if rc == 0 else 'FAILED ') + dest, os.path.getsize(dest) if rc == 0 else '')
 
 def frames(work, *names):
-    """vid/<n>.mp4 -> frames/<n>/0001.jpg... at 30 fps and 1080x1920 (what reelkit.Clip reads). Generated clips are
-    already 9:16; for camera footage use `extract`."""
-    vids = [os.path.join(work, 'vid', n + '.mp4') for n in names] or sorted(glob.glob(os.path.join(work, 'vid', '*.mp4')))
+    """vid/<n>.mp4 -> frames/<n>/0001.jpg... at 30 fps, scaled and cropped to the canvas (1080x1920; 1920x1080 with
+    --format 16:9). That is what reelkit.Clip reads. Generated clips already have the reel's shape; for camera footage
+    use `extract`."""
+    W, H = _canvas()
+    vids = [os.path.join(work, 'vid', n + '.mp4') for n in names] or _files(os.path.join(work, 'vid'), VIDEO_EXT)
     for v in vids:
         n = os.path.splitext(os.path.basename(v))[0]; d = os.path.join(work, 'frames', n)
         if os.path.isdir(d) and len(os.listdir(d)) > 20: print('exists', n); continue
         os.makedirs(d, exist_ok=True)
-        _ff('-i', v, '-vf', 'fps=30,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920', '-q:v', '2', os.path.join(d, '%04d.jpg'))
+        _ff('-i', v, '-vf', f'fps=30,scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H}', '-q:v', '2', os.path.join(d, '%04d.jpg'))
         print(n, len(os.listdir(d)), 'frames')
 
 def extract(work, name, source, start, dur, mode='auto'):
-    """A segment of real footage -> frames/<name>/. Portrait clips are scaled to fill 1080x1920; landscape clips are
-    fitted 1420 px wide over a blurred, darkened copy of themselves (no crop, no quality loss). mode: auto|fill|fit"""
+    """A segment of real footage -> frames/<name>/. Clips with the reel's orientation are scaled to fill the canvas;
+    the others are fitted over a blurred, darkened copy of themselves (no crop, no quality loss): on 9:16, landscape
+    clips 1420 px wide; on 16:9, portrait clips at full height. mode: auto|fill|fit"""
+    W, H = _canvas()
     d = os.path.join(work, 'frames', name); os.makedirs(d, exist_ok=True)
     if len(os.listdir(d)) > 10: print('exists', name); return
     if mode == 'auto':
@@ -40,46 +64,48 @@ def extract(work, name, source, start, dur, mode='auto'):
         st = json.loads(probe)['streams'][0]; w, h = st['width'], st['height']
         rot = next((abs(int(sd.get('rotation', 0))) for sd in st.get('side_data_list', []) if 'rotation' in sd), 0)
         if rot in (90, 270): w, h = h, w
-        mode = 'fit' if w > h else 'fill'
+        if W == H: mode = 'fit' if max(w, h) > 1.25 * min(w, h) else 'fill'
+        else: mode = 'fit' if (w > h) != (W > H) else 'fill'
     if mode == 'fit':
-        vf = ('[0:v]fps=30,split[a][b];'
-              '[a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:3,eq=brightness=-0.10:saturation=0.9[bg];'
-              '[b]scale=1420:-2:flags=lanczos,crop=1080:ih[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2+40')
-        _ff('-ss', f'{float(start):.3f}', '-t', f'{float(dur):.3f}', '-i', source, '-filter_complex', vf, '-q:v', '2', os.path.join(d, '%04d.jpg'))
+        bg = (f'[0:v]fps=30,split[a][b];[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},'
+              'boxblur=24:3,eq=brightness=-0.10:saturation=0.9[bg];')
+        if (W, H) == (1080, 1920): fg = '[b]scale=1420:-2:flags=lanczos,crop=1080:ih[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2+40'
+        else: fg = f'[b]scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2'
+        _ff('-ss', f'{float(start):.3f}', '-t', f'{float(dur):.3f}', '-i', source, '-filter_complex', bg + fg, '-q:v', '2', os.path.join(d, '%04d.jpg'))
     else:
         _ff('-ss', f'{float(start):.3f}', '-t', f'{float(dur):.3f}', '-i', source, '-vf',
-            'fps=30,scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920', '-q:v', '2', os.path.join(d, '%04d.jpg'))
+            f'fps=30,scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H}', '-q:v', '2', os.path.join(d, '%04d.jpg'))
     print(name, len(os.listdir(d)), 'frames', f'({mode})')
 
 def sheet_img(work, cols=5):
     """review/imgs.jpg with every illustration: check style, stray text and LOGOS before spending on video."""
-    from PIL import Image, ImageDraw
-    fs = sorted(glob.glob(os.path.join(work, 'img', '*.png')) + glob.glob(os.path.join(work, 'img', '*.jpg')))
+    from PIL import Image, ImageDraw, ImageOps
+    fs = _files(os.path.join(work, 'img'), IMAGE_EXT); cols = int(cols)
     if not fs: print('no images in img/'); return
-    w, h = 300, 533; rows = -(-len(fs) // cols)
+    W, H = _canvas(); w = 300 if W <= H else 400; h = round(w * H / W); rows = -(-len(fs) // cols)   # tiles in the reel's shape
     sheet = Image.new('RGB', (cols * (w + 6), rows * (h + 34)), 'white'); d = ImageDraw.Draw(sheet)
     for i, f in enumerate(fs):
         x, y = (i % cols) * (w + 6), (i // cols) * (h + 34)
-        sheet.paste(Image.open(f).convert('RGB').resize((w, h), Image.LANCZOS), (x, y + 30)); d.text((x + 4, y + 4), os.path.basename(f), fill='black', font=_font(20))
+        im = ImageOps.contain(Image.open(f).convert('RGB'), (w, h), Image.LANCZOS)     # whole image, never squashed
+        sheet.paste(im, (x + (w - im.width) // 2, y + 30 + (h - im.height) // 2)); d.text((x + 4, y + 4), os.path.basename(f), fill='black', font=_font(20))
     out = os.path.join(work, 'review', 'imgs.jpg'); os.makedirs(os.path.dirname(out), exist_ok=True); sheet.save(out, quality=88); print(out)
 
 def sheet_motion(work):
     """review/motion.jpg: 5 frames per clip to see that the animation respects the drawing and invents nothing."""
     from PIL import Image, ImageDraw
     ns = sorted(n for n in os.listdir(os.path.join(work, 'frames')) if os.path.isdir(os.path.join(work, 'frames', n)))
-    w, h = 190, 338; sheet = Image.new('RGB', (5 * (w + 4) + 170, len(ns) * (h + 4)), 'white'); d = ImageDraw.Draw(sheet)
+    W, H = _canvas(); w = 190 if W <= H else 300; h = round(w * H / W); sheet = Image.new('RGB', (5 * (w + 4) + 170, len(ns) * (h + 4)), 'white'); d = ImageDraw.Draw(sheet)
     for r, n in enumerate(ns):
         fs = sorted(os.listdir(os.path.join(work, 'frames', n))); k = len(fs); d.text((6, r * (h + 4) + 8), n, fill='black', font=_font(20))
         for c, i in enumerate([0, k // 4, k // 2, 3 * k // 4, k - 1]):
-            sheet.paste(Image.open(os.path.join(work, 'frames', n, fs[i])).resize((w, h), Image.LANCZOS), (170 + c * (w + 4), r * (h + 4)))
+            sheet.paste(Image.open(os.path.join(work, 'frames', n, fs[i])).convert('RGB').resize((w, h), Image.LANCZOS), (170 + c * (w + 4), r * (h + 4)))
     out = os.path.join(work, 'review', 'motion.jpg'); os.makedirs(os.path.dirname(out), exist_ok=True); sheet.save(out, quality=86); print(out)
 
 def sheet_footage(work, *sources):
     """review/footage_N.jpg: a row of timestamped frames per source clip, to pick segments from real footage.
     sources: video files (or a folder). Frame every max(0.6 s, duration/12)."""
     from PIL import Image, ImageDraw
-    files = []
-    for s in sources: files += sorted(glob.glob(os.path.join(s, '*.m*4')) + glob.glob(os.path.join(s, '*.MOV')) + glob.glob(os.path.join(s, '*.mov'))) if os.path.isdir(s) else [s]
+    files = _videos(sources)
     tmp = os.path.join(work, 'review', '_tmp'); os.makedirs(tmp, exist_ok=True); F = _font(18)
     Wd = 1900; sheets = []; cur = Image.new('RGB', (Wd, 1560), (30, 30, 30)); d = ImageDraw.Draw(cur); x, y = 10, 10
     def new():
@@ -110,7 +136,7 @@ def sheet_footage(work, *sources):
 def voice(work):
     """Duration and voiced spans of every vo/*.mp3|wav: timings and cuts of the edit come from here."""
     import reelkit as rk; rk.set_base(work); total = 0
-    for f in sorted(glob.glob(os.path.join(work, 'vo', '*.mp3')) + glob.glob(os.path.join(work, 'vo', '*.wav'))):
+    for f in _files(os.path.join(work, 'vo'), AUDIO_EXT):
         rel = os.path.relpath(f, work).replace('\\', '/'); dur = rk.duration(rel); total += dur
         print(rel, round(dur, 2), [(round(a, 2), round(b, 2)) for a, b in rk.speech_segments(rel)])
     print('voice total:', round(total, 2), 's  (add ~0.3 s between sentences and 3-4 s of outro)')
@@ -153,7 +179,7 @@ def silence(out, dur='1'):
 def compare(out, *clips):
     """Side-by-side video to compare models. clips: file=Name|cost"""
     from PIL import Image, ImageDraw
-    cl = [a.split('=', 1) for a in clips]; w, h, bar = 540, 960, 96
+    W, H = _canvas(); cl = [a.split('=', 1) for a in clips]; w, h, bar = (540, 960, 96) if H > W else (960, 540, 96) if W > H else (720, 720, 96)
     head = Image.new('RGB', (w * len(cl), bar), (14, 26, 58)); d = ImageDraw.Draw(head)
     for i, (_, lab) in enumerate(cl):
         name, _, cost = lab.partition('|')
@@ -173,20 +199,29 @@ def verify(mp4, n=14):
     err = subprocess.run(['ffmpeg', '-hide_banner', '-nostats', '-i', mp4, '-af', 'ebur128=peak=true', '-f', 'null', '-'], capture_output=True, text=True).stderr
     print([l.strip() for l in err.splitlines() if l.strip().startswith(('I:', 'Peak:'))][-2:])
     dur = float(subprocess.check_output(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', mp4]).decode()); n = int(n)
-    cols = 7; rows = -(-n // cols); tmp = mp4 + '.f.png'; sheet = Image.new('RGB', (cols * 274, rows * 484), 'white')
+    vw, vh = _video_size(mp4); s = 480 / max(vw, vh); tw, th = 2 * round(vw * s / 2), 2 * round(vh * s / 2)   # 270x480 on 9:16
+    cols = 7 if vh > vw else 4; rows = -(-n // cols); tmp = mp4 + '.f.png'; sheet = Image.new('RGB', (cols * (tw + 4), rows * (th + 4)), 'white')
     for i in range(n):
-        _ff('-ss', str(round(dur * (i + 0.5) / n, 2)), '-i', mp4, '-frames:v', '1', '-vf', 'scale=270:480', tmp)
-        sheet.paste(Image.open(tmp).convert('RGB'), ((i % cols) * 274, (i // cols) * 484))
+        _ff('-ss', str(round(dur * (i + 0.5) / n, 2)), '-i', mp4, '-frames:v', '1', '-vf', f'scale={tw}:{th}', tmp)
+        sheet.paste(Image.open(tmp).convert('RGB'), ((i % cols) * (tw + 4), (i // cols) * (th + 4)))
     os.remove(tmp); out = os.path.splitext(mp4)[0] + '_sheet.jpg'; sheet.save(out, quality=88); print(out)
+
+def _video_size(path):
+    st = json.loads(subprocess.check_output(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
+                                             '-of', 'json', path]).decode())['streams'][0]
+    return int(st['width']), int(st['height'])
 
 def frame(mp4, t, out=None):
     """One full-size frame at second t -> png (jpg output from an mp4 trips ffmpeg's mjpeg range check)."""
     out = out or os.path.splitext(mp4)[0] + f'_{t}.png'; _ff('-ss', str(t), '-i', mp4, '-frames:v', '1', out); print(out)
 
-def web(mp4, out=None, height='1280', crf='24'):
-    """Lighter copy for a website or a preview: 720x1280, capped bitrate, faststart."""
+def web(mp4, out=None, height=None, crf='24'):
+    """Lighter copy for a website or a preview: 720p (720x1280, 1280x720 or 720x720), capped bitrate, faststart.
+    height forces the output height instead."""
     out = out or os.path.splitext(mp4)[0] + '-web.mp4'
-    _ff('-i', mp4, '-vf', f'scale=-2:{height}:flags=lanczos', '-c:v', 'libx264', '-preset', 'slow', '-crf', crf, '-maxrate', '1500k', '-bufsize', '3000k',
+    if height: scale = f'-2:{height}'
+    else: vw, vh = _video_size(mp4); scale = '-2:1280' if vh > vw else '1280:-2' if vw > vh else '720:720'
+    _ff('-i', mp4, '-vf', f'scale={scale}:flags=lanczos', '-c:v', 'libx264', '-preset', 'slow', '-crf', crf, '-maxrate', '1500k', '-bufsize', '3000k',
         '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out); print(out)
 
 def gif(mp4, out=None, width='360', fps='12', start='0', dur=None):
@@ -203,11 +238,71 @@ def fonts_cmd():
     fonts.FONTS.clear()
     for k, v in fonts.status().items(): print(f'{k:10s} {v}')
 
+def doctor():
+    """Check this machine from the skill folder itself (an installed copy has no install.py): python, ffmpeg, packages, fonts, keys (names only)."""
+    import shutil
+    bad = []
+    def row(label, value, ok=True):
+        if ok is False: bad.append(label)
+        print(f'  {"--" if ok is None else "ok" if ok else "!!"} {label:16s} {value}')
+    v = sys.version_info; row('python', f'{v.major}.{v.minor}.{v.micro}', v >= (3, 10))
+    for t in ('ffmpeg', 'ffprobe'):
+        p = shutil.which(t)
+        row(t, subprocess.run([p, '-version'], capture_output=True, text=True).stdout.split(' Copyright')[0] if p else
+            'NOT FOUND: install ffmpeg (references/troubleshooting.md)', bool(p))
+    for mod, pkg in (('PIL', 'Pillow'), ('numpy', 'numpy'), ('requests', 'requests')):
+        try: row(pkg, getattr(__import__(mod), '__version__', 'present'))
+        except ImportError: row(pkg, 'missing: python -m pip install Pillow numpy requests', False)
+    try:
+        import fonts
+        for k, p in fonts.status().items():
+            missing = 'MISSING' in p or 'missing' in p
+            row(f'font {k}', os.path.basename(p) if not missing else p, None if k == 'emoji' and missing else not missing)
+    except Exception as e: row('fonts', str(e), False)
+    try:
+        import reelkit as rk; row('format', f'{rk.FORMAT} ({rk.W}x{rk.H}); REELKIT_FORMAT or --format to change', None)
+    except Exception as e: row('reelkit', str(e), False)
+    sys.path.insert(0, os.path.join(HERE, 'providers')); from env import has
+    for key in ('MAGNIFIC_API_KEY', 'ELEVENLABS_API_KEY'):
+        row(key, 'set' if has(key) else 'missing (optional; see .env.example)', True if has(key) else None)
+    print('\n' + ('All good.' if not bad else 'Fix the lines marked !!: ' + ', '.join(bad)))
+    return 1 if bad else 0
+
 COMMANDS = {'download': download, 'frames': frames, 'extract': extract, 'sheet-img': sheet_img, 'sheet-motion': sheet_motion,
             'sheet-footage': sheet_footage, 'voice': voice, 'beats': beats, 'energy': energy, 'splice': splice, 'sound': sound,
-            'silence': silence, 'compare': compare, 'verify': verify, 'frame': frame, 'web': web, 'gif': gif, 'fonts': fonts_cmd}
-if __name__ == '__main__':
-    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
+            'silence': silence, 'compare': compare, 'verify': verify, 'frame': frame, 'web': web, 'gif': gif, 'fonts': fonts_cmd,
+            'doctor': doctor}
+def usage(name):
+    """One line with the arguments of a command: required, [optional], [repeated...]."""
+    ps = []
+    for p in inspect.signature(COMMANDS[name]).parameters.values():
+        if p.kind is p.VAR_POSITIONAL: ps.append(f'[{p.name}...]')
+        elif p.default is p.empty: ps.append(p.name)
+        else: ps.append(f'[{p.name}]')
+    return f'python media.py {name} ' + ' '.join(ps)
+
+def main(argv):
+    args = list(argv)
+    for i, a in enumerate(args):                       # --format 16:9 / --format=16:9, anywhere on the line
+        if a == '--format' or a.startswith('--format='):
+            fmt = a.split('=', 1)[1] if '=' in a else (args[i + 1] if i + 1 < len(args) else '')
+            del args[i:i + (1 if '=' in a else 2)]
+            import reelkit as rk; rk.set_format(fmt); break
+    if not args or args[0] not in COMMANDS:
+        if args: print(f'unknown command "{args[0]}"\n')
         for k, f in COMMANDS.items(): print(f'{k:14s} {f.__doc__.strip().splitlines()[0]}')
-        sys.exit(0)
-    COMMANDS[sys.argv[1]](*sys.argv[2:])
+        return 0 if not args else 2
+    cmd, rest = args[0], args[1:]
+    try: inspect.signature(COMMANDS[cmd]).bind(*rest)
+    except TypeError:
+        print(f'usage: {usage(cmd)}\n\n{COMMANDS[cmd].__doc__.strip()}'); return 2
+    import shutil
+    missing = [t for t in (('curl',) if cmd in ('download', 'fonts') else () if cmd in ('sheet-img', 'sheet-motion', 'doctor') else ('ffmpeg', 'ffprobe'))
+               if not shutil.which(t)]
+    if missing:
+        print(f'{" and ".join(missing)} not found on PATH. Install {"curl" if missing == ["curl"] else "ffmpeg (it includes ffprobe)"}, '
+              'reopen the terminal and check with `python install.py doctor` (references/troubleshooting.md).'); return 1
+    return COMMANDS[cmd](*rest) or 0
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

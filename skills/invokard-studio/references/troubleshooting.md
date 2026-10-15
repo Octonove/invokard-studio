@@ -1,9 +1,16 @@
 # Troubleshooting
 
+## Installing
+- `error: externally-managed-environment` from pip (Ubuntu 23.04+, Debian 12, Homebrew Python): install into a virtual
+  environment, `python -m venv .venv`, activate it (`source .venv/bin/activate`; Windows `.venv\Scripts\activate`),
+  then `python -m pip install -r requirements.txt`.
+- `python -m pytest` says "No module named pytest": `python -m pip install -r requirements-dev.txt`.
+
 ## ffmpeg / ffprobe not found
 - Windows: `winget install Gyan.FFmpeg` (or download the "full" build from gyan.dev and add its `bin` to PATH).
 - macOS: `brew install ffmpeg`. Linux: `sudo apt install ffmpeg` (≥ 5). Reopen the terminal / restart the agent so
-  the new PATH is inherited. `install.py doctor` shows the version it finds.
+  the new PATH is inherited. `install.py doctor` (repository) or `scripts/media.py doctor` (any copy of the skill)
+  shows the version it finds.
 - The engine needs `libx264`, `loudnorm`, `sidechaincompress`, `alimiter`, `silencedetect`, `ebur128`: all in the
   standard builds. No libass is required (captions are drawn by the engine, not by ffmpeg).
 
@@ -27,8 +34,22 @@
   `INVOKARD_TLS_VERIFY=0`.
 - faster-whisper model downloads use the same store; a cached model is loaded offline first.
 
+## Formats (16:9, 1:1)
+- Everything moved or is cut off after switching: `rk.set_format('16:9')` must run before `from reelkit import W, H`
+  (those names are copies) and before building sources, layers and captions. Remove positions copied from a 9:16 reel
+  (`y=1440`, `y=1262`…): the defaults (`rk.LAYOUT`) already fit the format.
+- "returned a 1080x1920 frame but the reel is 1920x1080": a `Func` or custom source draws at a fixed size; use `W, H`.
+  Clips extracted for the other format are cropped to fill with a note; extract them again with `--format 16:9`.
+- `REELKIT_LANDSCAPE=1` still means 16:9; `REELKIT_FORMAT` wins when both are set.
+
 ## Renders
-- A 45 s reel takes 3-5 minutes (frame by frame). Run it in the background and wait for the final `ok`.
+- A 45 s reel takes a minute or two (frame by frame, about 50 ms each, plus the encode). Run it in the background
+  and wait for the final `ok`. Drafts: `reel.render(..., preset='veryfast')`.
+- A missing music file or sound effect stops `render()` at once, before the video, with the path it looked for.
+- Errors that say "file not found (looked for …; work folder …)": relative paths resolve against the work folder;
+  call `rk.set_base(folder)` (the template does) or pass an absolute path.
+- Zooms and pans resample with `resize(box)`; frames can differ from 1.0.0 by under one colour level on average.
+  `rk.LEGACY_RESAMPLE = True` gives the 1.0.0 pixels back.
 - Memory: a `Still` keeps one scaled image; `Clip` reads JPEGs on demand. Thousands of frames are fine.
 - Frame grab to `.jpg` from the final mp4 can trip ffmpeg's mjpeg range check: `media.py frame` writes `.png`.
 - `NotADirectoryError` in `frames/`: something other than frame folders is inside `frames/`. Move it out.
