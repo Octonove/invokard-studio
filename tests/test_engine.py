@@ -23,7 +23,6 @@ def work():
                     '-f', 'lavfi', '-i', 'sine=frequency=330:duration=0.9', '-filter_complex', '[0][1][2]concat=n=3:v=0:a=1[a]', '-map', '[a]',
                     os.path.join(d, 'vo', 'v01.mp3')], check=True)
     yield d
-    shutil.clearcache = None
     shutil.rmtree(d, ignore_errors=True)
 
 def test_fonts_resolve():

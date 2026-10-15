@@ -265,6 +265,12 @@ def main(argv):
     try: inspect.signature(COMMANDS[cmd]).bind(*rest)
     except TypeError:
         print(f'usage: {usage(cmd)}\n\n{COMMANDS[cmd].__doc__.strip()}'); return 2
+    import shutil
+    missing = [t for t in (('curl',) if cmd in ('download', 'fonts') else () if cmd in ('sheet-img', 'sheet-motion') else ('ffmpeg', 'ffprobe'))
+               if not shutil.which(t)]
+    if missing:
+        print(f'{" and ".join(missing)} not found on PATH. Install {"curl" if missing == ["curl"] else "ffmpeg (it includes ffprobe)"}, '
+              'reopen the terminal and check with `python install.py doctor` (references/troubleshooting.md).'); return 1
     COMMANDS[cmd](*rest)
     return 0
 

@@ -117,10 +117,13 @@ def ring(canvas, cx, cy, r, p, color, width=7, dash=False, alpha=1.0):
         d.arc(box, -90, -90 + 360 * clamp01(p), fill=color + (255,), width=width)
     blit(canvas, im, cx, cy, alpha=alpha)
 
-@functools.lru_cache(None)
 def photo_card(path, w, h, crop=None, border=0, radius=28, cx=.5, cy=.4):
     """Rounded thumbnail with optional white border and shadow (mosaics, end cards)."""
-    im = cover_cached(path, w, h, cx, cy, crop).convert('RGBA')
+    return _photo_card(rk.source_key(path), w, h, crop, border, radius, cx, cy)
+
+@functools.lru_cache(None)
+def _photo_card(key, w, h, crop, border, radius, cx, cy):
+    im = rk.cover_key(key, w, h, cx, cy, crop).convert('RGBA')
     mask = Image.new('L', (w, h), 0); ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, h - 1), radius, fill=255); im.putalpha(mask)
     if border:
         out = rrect(w + 2 * border, h + 2 * border, radius + border // 2, (255, 255, 255, 255)); out.alpha_composite(im, (border, border)); im = out
