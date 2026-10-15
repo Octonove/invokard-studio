@@ -340,6 +340,39 @@ def wipe_scene(before, after, b, hold=0.0, sweep=0.85, labels=('BEFORE', 'AFTER'
     return Func(scene)
 
 
+# ------------------------------------------------------------------ screenshots in a browser window or a phone
+def _shot(shot):
+    return (shot if isinstance(shot, Image.Image) else rk.load(shot)).convert('RGBA')
+
+def browser_frame(shot, w=1400, url='', bar=(236, 238, 242), radius=22):
+    """A screenshot (path or image) inside a browser window `w` px wide: title bar with three dots and the URL, rounded
+    corners, soft shadow. Returns RGBA; place it with blit/appear. Made for 16:9 product demos."""
+    im = _shot(shot); bh = max(40, w // 28); sh = round(im.height * w / im.width)
+    win = rrect(w, bh + sh, radius, (255, 255, 255, 255)); d = ImageDraw.Draw(win)
+    d.rounded_rectangle((0, 0, w - 1, bh + radius), radius, fill=bar + (255,)); d.rectangle((0, bh, w - 1, bh + radius), fill=(255, 255, 255, 255))
+    for i, col in enumerate(((255, 95, 87), (254, 188, 46), (40, 200, 64))):
+        r = bh // 6; cx = bh // 2 + i * (r * 3); d.ellipse((cx - r, bh // 2 - r, cx + r, bh // 2 + r), fill=col + (255,))
+    if url:
+        t = text_img(url, 'semi', int(bh * 0.42), (90, 96, 110)); uw = min(w // 2, t.width + bh)
+        d.rounded_rectangle(((w - uw) // 2, bh * 0.2, (w + uw) // 2, bh * 0.8), int(bh * 0.3), fill=(255, 255, 255, 255))
+        win.alpha_composite(t.crop((0, 0, min(t.width, uw - 8), t.height)), ((w - min(t.width, uw - 8)) // 2, (bh - t.height) // 2))
+    body = im.resize((w, sh), Image.LANCZOS); mask = Image.new('L', (w, sh), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, -radius, w - 1, sh - 1), radius, fill=255)
+    win.paste(body, (0, bh), mask)
+    return shadowed(win, radius=28, offset=(0, 18), opacity=0.35)
+
+def phone_frame(shot, h=900, body=(18, 18, 22)):
+    """A screenshot (path or image) inside a phone `h` px tall: dark bezel, rounded screen, a camera notch and a soft
+    shadow. Returns RGBA."""
+    im = _shot(shot); bz = max(8, h // 50); r = h // 12
+    sw = round((h - 2 * bz) * 9 / 19.5); w = sw + 2 * bz
+    ph = rrect(w, h, r, body + (255,))
+    scr = rk.cover(im.convert('RGB'), sw, h - 2 * bz); mask = Image.new('L', scr.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, scr.width - 1, scr.height - 1), r - bz, fill=255); ph.paste(scr, (bz, bz), mask)
+    nw = sw // 3; ImageDraw.Draw(ph).rounded_rectangle(((w - nw) // 2, bz + h // 90, (w + nw) // 2, bz + h // 90 + h // 36), h // 72, fill=body + (255,))
+    return shadowed(ph, radius=26, offset=(0, 16), opacity=0.4)
+
+
 # ------------------------------------------------------------------ end cards
 def _bookmark(b, size=150):
     im = Image.new('RGBA', (size, size), (0, 0, 0, 0)); d = ImageDraw.Draw(im); w = size * 0.52; x0 = (size - w) / 2
