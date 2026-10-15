@@ -1,6 +1,8 @@
-# reelkit — the Invokard Studio compositor: 1080x1920 at 30 fps, shots, animated layers, word-by-word captions and the
-# audio mix. Every frame is composed with Pillow and piped to ffmpeg (libx264). No video editor involved.
+# reelkit — the Invokard Studio compositor: 1080x1920 at 30 fps (or 1920x1080 / 1080x1080, see set_format), shots,
+# animated layers, word-by-word captions and the audio mix. Every frame is composed with Pillow and piped to ffmpeg
+# (libx264). No video editor involved.
 #
+#   import reelkit as rk; rk.set_format('9:16')                # optional: '16:9' or '1:1'; call it before anything else
 #   from reelkit import Reel, Captions, Still, Clip, Func, blit, pill, text_img, lerp, clamp01, eo, eio, eback
 #   rk.set_base(folder)              # work folder: img/ vid/ frames/ vo/ music/ sfx/ ref/ out/ review/
 #   reel = Reel('name'); reel.caps = Captions(size=70, y=1440)
@@ -13,7 +15,65 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 import fonts as _fonts
 
-W, H, FPS = 1080, 1920, 30
+# ---------------------------------------------------------------- format
+# 9:16 is the default and what every reel made before formats existed uses. 16:9 is for YouTube, LinkedIn, Fiverr;
+# 1:1 for feeds. Pick one with REELKIT_FORMAT=16:9 in the environment or rk.set_format('16:9') at the top of the
+# script, before `from reelkit import W, H` and before any source or layer is built. REELKIT_LANDSCAPE=1 (the first
+# switch, kept for the scripts that use it) means 16:9.
+FORMATS = {'9:16': (1080, 1920), '16:9': (1920, 1080), '1:1': (1080, 1080)}
+ALIASES = {'portrait': '9:16', 'vertical': '9:16', 'reel': '9:16', 'landscape': '16:9', 'horizontal': '16:9',
+           'widescreen': '16:9', 'square': '1:1'}
+# Default positions (px) of the captions and of the pieces in pieces.py, per format. The 9:16 numbers are the ones the
+# engine always used, so existing reels do not move. 16:9 and 1:1 share the 1080 px height, so they share the heights.
+_SHORT = dict(caption_size=64, caption_y=880, caption_maxw=1400, text_y=300, text_maxw=1500, pill_maxw=1400,
+              top=120, hook_y=170, label_y=110, card_y=110, item_y=150, benefit_y=740, gradient_y0=540,
+              handle_y=540, wipe_label_y=900, center_y=540,
+              outro_save=(150, 175, 390, 520, 597, 712, 812, 36),     # card from/to, bookmark, title, sub, cta, note, note step
+              comment_y=560, comment_dy=(-150, 150, 290),             # «Comment WORD»: prompt, sub and handle offsets
+              fan_size=(200, 280), fan_y=220, fan_cta_y=640)
+LAYOUTS = {
+    '9:16': dict(caption_size=74, caption_y=1450, caption_maxw=900, text_y=470, text_maxw=950, pill_maxw=900,
+                 top=236, hook_y=300, label_y=255, card_y=215, item_y=300, benefit_y=1262, gradient_y0=1100,
+                 handle_y=1000, wipe_label_y=1480, center_y=900,
+                 outro_save=(360, 400, 690, 850, 942, 1090, 1218, 40),
+                 comment_y=1040, comment_dy=(-148, 152, 380),
+                 fan_size=(300, 420), fan_y=480, fan_cta_y=1130),
+    '16:9': dict(_SHORT),
+    '1:1': dict(_SHORT, caption_maxw=900, text_maxw=950, pill_maxw=900),
+}
+
+def format_name(fmt):
+    """Canonical name ('9:16', '16:9', '1:1') of a format given as a name, an alias (portrait, landscape, square...),
+    'WIDTHxHEIGHT' or a (width, height) tuple."""
+    if isinstance(fmt, (tuple, list)): fmt = f'{fmt[0]}x{fmt[1]}'
+    f = str(fmt).strip().lower().replace(' ', '')
+    f = ALIASES.get(f, f)
+    if f in FORMATS: return f
+    for name, (w, h) in FORMATS.items():
+        if f == f'{w}x{h}': return name
+    raise ValueError(f'Unknown format "{fmt}". Use one of: 9:16 (1080x1920), 16:9 (1920x1080), 1:1 (1080x1080)')
+
+def env_format():
+    """Format asked for by the environment: REELKIT_FORMAT, else REELKIT_LANDSCAPE (any value but 0/false/no/off), else 9:16."""
+    f = os.environ.get('REELKIT_FORMAT', '').strip()
+    if f: return format_name(f)
+    if os.environ.get('REELKIT_LANDSCAPE', '').strip().lower() not in ('', '0', 'false', 'no', 'off'): return '16:9'
+    return '9:16'
+
+FORMAT = env_format()
+W, H = FORMATS[FORMAT]
+FPS = 30
+LAYOUT = dict(LAYOUTS[FORMAT])      # edit a key to move that default for the whole reel, e.g. rk.LAYOUT['caption_y'] = 860
+
+def set_format(fmt='9:16'):
+    """Canvas of the reel: '9:16' (1080x1920, default), '16:9' (1920x1080) or '1:1' (1080x1080). Call it at the top of
+    the script, before `from reelkit import W, H` (those names are copies) and before building sources, layers or
+    captions: their default positions come from LAYOUT. Returns (W, H)."""
+    global FORMAT, W, H, LAYOUT
+    FORMAT = format_name(fmt); W, H = FORMATS[FORMAT]; LAYOUT = dict(LAYOUTS[FORMAT])
+    for f in (cover_cached, blurred): f.cache_clear()             # both depend on the canvas size
+    return W, H
+
 BASE = os.path.abspath(os.environ.get('REEL_DIR', os.getcwd()))
 
 def set_base(path):
@@ -49,8 +109,9 @@ def eback(t, s=1.9):                                                          # 
 def load(path):
     return Image.open(P(path)).convert('RGB')
 
-def cover(im, w=W, h=H, cx=.5, cy=.5):
-    """Scale to fill w x h and crop around the focal point (cx, cy in 0..1)."""
+def cover(im, w=None, h=None, cx=.5, cy=.5):
+    """Scale to fill w x h (default: the canvas) and crop around the focal point (cx, cy in 0..1)."""
+    w, h = w or W, h or H
     sw, sh = im.size; s = max(w / sw, h / sh)
     nw, nh = max(w, round(sw * s)), max(h, round(sh * s))
     im2 = im.resize((nw, nh), Image.LANCZOS)
@@ -58,7 +119,7 @@ def cover(im, w=W, h=H, cx=.5, cy=.5):
     return im2.crop((x, y, x + w, y + h))
 
 @functools.lru_cache(None)
-def cover_cached(path, w=W, h=H, cx=.5, cy=.5, crop=None):
+def cover_cached(path, w=None, h=None, cx=.5, cy=.5, crop=None):
     im = load(path)
     if crop: im = im.crop(crop)
     return cover(im, w, h, cx, cy)
@@ -70,7 +131,8 @@ def blurred(path, radius=28, dark=0.55, tint=NAVY_D, crop=None):
     im = im.resize((W, H), Image.BICUBIC)
     return Image.blend(im, Image.new('RGB', (W, H), tint), dark)
 
-def gradient(top, bottom, w=W, h=H):
+def gradient(top, bottom, w=None, h=None):
+    w, h = w or W, h or H
     a = np.linspace(0, 1, h)[:, None, None]
     arr = (np.array(top)[None, None, :] * (1 - a) + np.array(bottom)[None, None, :] * a)
     return Image.fromarray(np.repeat(arr, w, axis=1).astype(np.uint8), 'RGB')
@@ -188,17 +250,26 @@ class Still:
 
 class Clip:
     """Frames of a video clip extracted to frames/<name>/0001.jpg... (see `media.py frames` / `media.py extract`).
-    speed scales playback, start is the offset inside the clip (s), z a zoom over the shot, fx(im, t) a per-frame effect."""
+    speed scales playback, start is the offset inside the clip (s), z a zoom over the shot, fx(im, t) a per-frame effect.
+    Frames of another size than the canvas (extracted for another format) are scaled and cropped to fill it."""
     def __init__(self, name, speed=1.0, start=0.0, z=(1.0, 1.0), c=(.5, .5), fx=None):
-        self.dir = P('frames', name)
+        self.name, self.dir = name, P('frames', name)
         if not os.path.isdir(self.dir): raise FileNotFoundError(f'No frames folder for clip "{name}": {self.dir}')
         self.files = sorted(f for f in os.listdir(self.dir) if f.lower().endswith(('.jpg', '.png')))
         self.n = len(self.files)
         if self.n == 0: raise FileNotFoundError(f'Clip "{name}" has no frames in {self.dir}')
         self.speed, self.start, self.z, self.c, self.fx = speed, start, z, c, fx
+        self.warned = False
     def get(self, idx):
         idx = min(max(idx, 0), self.n - 1)
-        return Image.open(os.path.join(self.dir, self.files[idx])).convert('RGB')
+        im = Image.open(os.path.join(self.dir, self.files[idx])).convert('RGB')
+        if im.size != (W, H):
+            if not self.warned:
+                print(f'note: the frames of clip "{self.name}" are {im.width}x{im.height} and the reel is {W}x{H} ({FORMAT}): '
+                      f'they are cropped to fill. Extract them for this format: python media.py frames <work> {self.name} --format {FORMAT}', flush=True)
+                self.warned = True
+            im = cover(im)
+        return im
     def frame(self, t, dur):
         im = self.get(int(round((self.start + t * self.speed) * FPS)))
         zz = lerp(self.z[0], self.z[1], clamp01(t / dur) if dur else 0)
@@ -273,9 +344,12 @@ def beat_grid(path, t0=0.0, t1=None, bpm_range=(80, 160), step=0.02):
 PUNCT = '.,:;?!'
 class Captions:
     """Captions timed word by word. Syntax: *word* highlighted · ' / ' forces a block break ·
-    shown|spoken when the written form differs from the spoken one ("40|forty")."""
-    def __init__(self, size=74, y=1450, maxw=900):
-        self.size, self.y, self.maxw = size, y, maxw
+    shown|spoken when the written form differs from the spoken one ("40|forty"). size, y and maxw default to the
+    format's LAYOUT (9:16: 74, 1450, 900)."""
+    def __init__(self, size=None, y=None, maxw=None):
+        self.size = LAYOUT['caption_size'] if size is None else size
+        self.y = LAYOUT['caption_y'] if y is None else y
+        self.maxw = LAYOUT['caption_maxw'] if maxw is None else maxw
         self.chunks = []; self.words_by_line = {}
 
     def _parse(self, text):
@@ -424,6 +498,9 @@ class Reel:
             if t0 <= t < t1: base = (src, t - t0, t1 - t0)
         if base is None: im = Image.new('RGB', (W, H), NAVY_D)
         else: im = base[0].frame(base[1], base[2])
+        if im.size != (W, H):        # a wrong size would not fail in ffmpeg: 1080x1920 and 1920x1080 have the same bytes
+            raise ValueError(f'The shot at t={t:.2f} s returned a {im.width}x{im.height} frame but the reel is {W}x{H} ({FORMAT}). '
+                             f'Sources must return full frames; if you changed the format, call rk.set_format() before building them.')
         c = im.convert('RGBA')
         for t0, t1, fn in self.ovs:
             if t0 <= t < t1: fn(c, t - t0, t1 - t0, t)
@@ -516,11 +593,12 @@ class Reel:
         try: self.frame_at(t).save(P(out), quality=quality)
         finally: self.caps = caps
 
-    def render(self, out, total, music=None, music_gain=0.24, music_offset=None, **audio_kw):
-        """Video + audio mix + mux in one call. Intermediates (_video.mp4, _audio.wav) stay next to `out`."""
+    def render(self, out, total, music=None, music_gain=0.24, music_offset=None, crf=16, preset='slow', **audio_kw):
+        """Video + audio mix + mux in one call. Intermediates (_video.mp4, _audio.wav) stay next to `out`.
+        crf/preset go to x264 (preset='veryfast' for drafts); the rest to render_audio."""
         out = P(out); d = os.path.dirname(out) or '.'; os.makedirs(d, exist_ok=True)
         v, a = os.path.join(d, '_video.mp4'), os.path.join(d, '_audio.wav')
-        self.render_video(v, total); self.render_audio(a, total, music, music_gain, music_offset, **audio_kw); self.mux(v, a, out)
+        self.render_video(v, total, crf=crf, preset=preset); self.render_audio(a, total, music, music_gain, music_offset, **audio_kw); self.mux(v, a, out)
         return out
 
     def mux(self, video, audio, out):
