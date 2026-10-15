@@ -25,6 +25,7 @@ jobs:
           - { os: ubuntu-latest, python: '3.10', deps: oldest }    # the floor requirements.txt promises
           - { os: ubuntu-latest, python: '3.13', deps: newest }
           - { os: windows-latest, python: '3.14', deps: newest }   # the machine the reels are made on
+          - { os: macos-latest, python: '3.13', deps: newest }     # Apple Color Emoji, Homebrew ffmpeg
     steps:
       - uses: actions/checkout@v5
 
@@ -34,7 +35,14 @@ jobs:
 
       - name: Install ffmpeg (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-color-emoji
+
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        env: { HOMEBREW_NO_AUTO_UPDATE: '1', HOMEBREW_NO_INSTALL_CLEANUP: '1' }
+        run: |
+          command -v ffmpeg || brew install ffmpeg
+          ffmpeg -hide_banner -version | head -1
 
       # A static build from GitHub releases, with libx264. (Chocolatey's feed answered 504, installed nothing and still
       # exited 0.) Every failure stops the step here instead of surfacing later as "ffmpeg not found".
@@ -80,7 +88,7 @@ jobs:
 
       - name: Keep the renders
         if: matrix.os == 'ubuntu-latest' && matrix.deps == 'newest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: first-reel
           path: |

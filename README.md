@@ -156,7 +156,7 @@ skills/invokard-studio/
 examples/                      first-reel (runs anywhere, no outside media) · schippers · ekilib · maemuki · simplificaconia
 install.py                     install / doctor / uninstall
 tests/                         pytest: engine, formats, fixes, example, installer (no credits, no keys)
-.github/workflows/tests.yml    CI: Ubuntu (Python 3.10 with the oldest versions, 3.13) and Windows (3.14)
+.github/workflows/tests.yml    CI: Ubuntu (Python 3.10 with the oldest versions, 3.13), Windows (3.14), macOS (3.13)
 ```
 
 Run the tests with `python -m pip install -r requirements-dev.txt` and `python -m pytest tests -q` (about a minute;
@@ -166,7 +166,7 @@ the tests that need ffmpeg are skipped without it).
 
 | Symptom | Fix |
 |---|---|
-| `ffmpeg was not found on PATH` / `ffprobe was not found` | Install ffmpeg (table above) and open a **new** terminal (or restart the agent) so it sees the new PATH. `python install.py doctor` shows what it finds. |
+| `ffmpeg was not found on PATH` / `ffprobe was not found` | Install ffmpeg (table above) and open a **new** terminal (or restart the agent) so it sees the new PATH. `python install.py doctor` (or `scripts/media.py doctor` from an installed copy of the skill) shows what it finds. |
 | `error: externally-managed-environment` from pip | Your system Python is protected: create the virtual environment from [Install](#install). |
 | `... file not found (looked for ...; work folder ...)` | The path is relative to the work folder: call `rk.set_base(folder)` (the template does it) or pass an absolute path. |
 | Captions bunch up or the highlight lands on the wrong word | One voice file per sentence; the phrases (split on `.,:;?!`) must match the pauses. Write "." instead of "…". `python media.py voice <work>` prints the voiced spans. |
@@ -192,8 +192,8 @@ Gemini CLI, Cursor, Windsurf. Without an agent, you can write `reel.py` yourself
 pans now resample about 4x faster and can differ from 1.0.0 by under one colour level on average; set
 `rk.LEGACY_RESAMPLE = True` for the exact 1.0.0 pixels.
 
-**Does it run on Windows, macOS and Linux?** It is used daily on Windows 11; CI runs the tests and a render on Windows
-and Ubuntu. macOS uses the same code paths but is not in CI yet.
+**Does it run on Windows, macOS and Linux?** Yes. It is used daily on Windows 11, and CI runs the tests and a render
+on Windows, macOS and Ubuntu.
 
 **Can I publish to Instagram or TikTok from it?** No, on purpose: it delivers `out/reel.mp4` and a cover; the client
 approves and publishes.
@@ -216,8 +216,8 @@ approves and publishes.
 ## Status
 
 Public release, version 1.0.0, with the changes listed under *Unreleased* in the [changelog](CHANGELOG.md). Used daily
-on Windows 11 with Python 3.14 and ffmpeg 8; CI runs on Windows (Python 3.14) and Ubuntu (Python 3.10 with the oldest
-supported versions, and 3.13). The code has no platform-specific paths (fonts are bundled, system fonts are
+on Windows 11 with Python 3.14 and ffmpeg 8; CI runs on Windows (Python 3.14), macOS (3.13) and Ubuntu (Python 3.10
+with the oldest supported versions, and 3.13). The code has no platform-specific paths (fonts are bundled, system fonts are
 fallbacks). The 0.x TypeScript plugin for Codex is preserved under the tag `v0.2.0-codex`.
 
 Licence: MIT for code and documentation ([LICENSE](LICENSE)); example media are display-only under [separate terms](MEDIA_LICENSE.md). Fonts are OFL.

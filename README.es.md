@@ -162,7 +162,7 @@ skills/invokard-studio/
 examples/                      first-reel (funciona en cualquier sitio, sin medios de fuera) · schippers · ekilib · maemuki · simplificaconia
 install.py                     install / doctor / uninstall
 tests/                         pytest: motor, formatos, arreglos, ejemplo, instalador (sin créditos ni claves)
-.github/workflows/tests.yml    CI: Ubuntu (Python 3.10 con las versiones mínimas, 3.13) y Windows (3.14)
+.github/workflows/tests.yml    CI: Ubuntu (Python 3.10 con las versiones mínimas, 3.13), Windows (3.14), macOS (3.13)
 ```
 
 Los tests se ejecutan con `python -m pip install -r requirements-dev.txt` y `python -m pytest tests -q` (alrededor de
@@ -172,7 +172,7 @@ un minuto; sin ffmpeg se saltan los que lo necesitan).
 
 | Síntoma | Solución |
 |---|---|
-| `ffmpeg was not found on PATH` / `ffprobe was not found` | Instala ffmpeg (tabla de arriba) y abre una terminal **nueva** (o reinicia el agente) para que vea el PATH nuevo. `python install.py doctor` enseña lo que encuentra. |
+| `ffmpeg was not found on PATH` / `ffprobe was not found` | Instala ffmpeg (tabla de arriba) y abre una terminal **nueva** (o reinicia el agente) para que vea el PATH nuevo. `python install.py doctor` (o `scripts/media.py doctor` desde una copia instalada de la skill) enseña lo que encuentra. |
 | `error: externally-managed-environment` al usar pip | El Python del sistema está protegido: crea el entorno virtual de [Instalar](#instalar). |
 | `... file not found (looked for ...; work folder ...)` | La ruta es relativa a la carpeta de trabajo: llama a `rk.set_base(carpeta)` (la plantilla lo hace) o pasa una ruta absoluta. |
 | Los subtítulos se amontonan o el resaltado cae en otra palabra | Un fichero de voz por frase; las frases (separadas por `.,:;?!`) deben coincidir con las pausas. Escribe "." en vez de "…". `python media.py voice <carpeta>` imprime los tramos con voz. |
@@ -198,8 +198,8 @@ Antigravity, Gemini CLI, Cursor, Windsurf. Sin agente también puedes escribir `
 defecto. Los zooms y paneos se remuestrean ahora unas 4 veces más rápido y pueden diferir de la 1.0.0 en menos de un
 nivel de color de media; `rk.LEGACY_RESAMPLE = True` devuelve los píxeles exactos de la 1.0.0.
 
-**¿Funciona en Windows, macOS y Linux?** Se usa a diario en Windows 11; el CI pasa las pruebas y un render en Windows y
-Ubuntu. macOS usa el mismo código, pero aún no está en el CI.
+**¿Funciona en Windows, macOS y Linux?** Sí. Se usa a diario en Windows 11, y el CI pasa las pruebas y un render en
+Windows, macOS y Ubuntu.
 
 **¿Publica en Instagram o TikTok?** No, a propósito: entrega `out/reel.mp4` y una portada; el cliente aprueba y publica.
 
@@ -221,8 +221,8 @@ ver [MEDIA_LICENSE.md](MEDIA_LICENSE.md).
 ## Estado
 
 Versión pública 1.0.0, con los cambios de la sección *Unreleased* del [registro de cambios](CHANGELOG.md). Se usa a
-diario en Windows 11 con Python 3.14 y ffmpeg 8; el CI corre en Windows (Python 3.14) y Ubuntu (Python 3.10 con las
-versiones mínimas, y 3.13). El código no tiene rutas de plataforma (las fuentes van empaquetadas y las del sistema son
+diario en Windows 11 con Python 3.14 y ffmpeg 8; el CI corre en Windows (Python 3.14), macOS (3.13) y Ubuntu (Python
+3.10 con las versiones mínimas, y 3.13). El código no tiene rutas de plataforma (las fuentes van empaquetadas y las del sistema son
 el respaldo). El plugin 0.x en TypeScript para Codex se conserva bajo la etiqueta `v0.2.0-codex`.
 
 Licencia: MIT para código y documentación ([LICENSE](LICENSE)); los medios de ejemplo solo pueden mostrarse según sus [términos separados](MEDIA_LICENSE.md). Las fuentes conservan su licencia OFL.
