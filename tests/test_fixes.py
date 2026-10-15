@@ -141,3 +141,33 @@ def test_align_excerpts_never_share_a_temporary_file(rk, workdir):
         assert a != b and rk.duration(a) == pytest.approx(1.0, abs=0.05) and rk.duration(b) == pytest.approx(1.5, abs=0.05)
     finally:
         for p in (a, b): os.remove(p)
+
+def _bitmap_emoji_font():
+    import fonts
+    for p in (os.path.join(fonts.BUNDLED, 'NotoColorEmoji.ttf'), '/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf'):
+        if os.path.exists(p): return p
+    return None
+
+@pytest.mark.skipif(_bitmap_emoji_font() is None, reason='no bitmap colour emoji font on this machine')
+def test_bitmap_emoji_fonts_open_at_any_size(rk, tmp_path):
+    # Apple Color Emoji (macOS) and Noto Color Emoji only open at their bitmap sizes; any other size raised
+    # "OSError: invalid pixel size". A renamed Noto file stands in for the macOS font here.
+    import fonts, shutil as sh
+    import pieces as pz
+    fake = str(tmp_path / 'SystemEmoji.ttf'); sh.copy(_bitmap_emoji_font(), fake)
+    old = fonts.FONTS.get('emoji'); fonts.FONTS['emoji'] = fake; fonts.font.cache_clear()
+    try:
+        im = rk.emoji_img('🚜', 84)
+        assert 40 < im.height <= 84 * 1.1 and im.getchannel('A').getbbox()
+        assert pz.text_block('Tractor *time* 🚜', 84, 950).width == 1030
+    finally:
+        fonts.FONTS.pop('emoji', None)
+        if old: fonts.FONTS['emoji'] = old
+        fonts.font.cache_clear()
+
+def test_colour_emoji_with_this_machines_font(rk):
+    import fonts
+    if fonts.path('emoji') is None: pytest.skip('no colour emoji font (python media.py fonts downloads one)')
+    for size in (40, 84, 132):                                                # Apple Color Emoji on macOS, Segoe UI Emoji on Windows
+        im = rk.emoji_img('🚜', size)
+        assert im.getchannel('A').getbbox() and im.height <= size * 1.1 + 8

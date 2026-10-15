@@ -233,9 +233,24 @@ def text_img(text, kind, size, fill=WHITE, stroke=0, stroke_fill=INK, tracking=0
     if shadow: im = shadowed(im, radius=shadow, offset=(0, max(2, shadow // 3)), opacity=0.55)
     return im
 
+EMOJI_STRIKES = (160, 136, 109, 96, 64, 52, 48, 40, 32, 26, 20)   # bitmap sizes of Apple Color Emoji and Noto Color Emoji
+
+def emoji_font(size):
+    """The colour emoji font for a size. Bitmap emoji fonts (Apple Color Emoji on macOS, Noto Color Emoji) only open at
+    their own sizes; then the nearest one at or above `size` is used and emoji_img scales the result."""
+    p = _fonts.path('emoji')
+    if p is None: return font('emoji', size)                     # raises: how to get a colour emoji font
+    if os.path.basename(p) == 'NotoColorEmoji.ttf': return font('emoji', 109)
+    try: return font('emoji', int(size * 0.95))
+    except OSError:                                               # "invalid pixel size"
+        for s in sorted(EMOJI_STRIKES, key=lambda s: (s < size, abs(s - size))):
+            try: return font('emoji', s)
+            except OSError: pass
+        raise
+
 def emoji_img(ch, size):
     """A colour emoji on a transparent image (needs a colour emoji font, see fonts.py)."""
-    f = font('emoji', 109 if os.path.basename(_fonts.path('emoji') or '') == 'NotoColorEmoji.ttf' else int(size * 0.95))
+    f = emoji_font(size)
     b = f.getbbox(ch)
     im = Image.new('RGBA', (b[2] - b[0] + 8, b[3] - b[1] + 8), (0, 0, 0, 0))
     ImageDraw.Draw(im).text((4 - b[0], 4 - b[1]), ch, font=f, embedded_color=True)
