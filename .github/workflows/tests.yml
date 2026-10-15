@@ -36,9 +36,25 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
+      # A static build from GitHub releases, with libx264. (Chocolatey's feed answered 504, installed nothing and still
+      # exited 0.) Every failure stops the step here instead of surfacing later as "ffmpeg not found".
       - name: Install ffmpeg (Windows)
         if: runner.os == 'Windows'
-        run: choco install ffmpeg -y --no-progress
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'ffmpeg.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'ffmpeg'
+          curl.exe -sSfL --retry 4 --retry-delay 5 -o $zip 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+          if ($LASTEXITCODE -ne 0) { throw "ffmpeg download failed ($LASTEXITCODE)" }
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          & "$env:SystemRoot\System32\tar.exe" -xf $zip -C $dir
+          if ($LASTEXITCODE -ne 0) { throw "ffmpeg unzip failed ($LASTEXITCODE)" }
+          $exe = Get-ChildItem -Path $dir -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          if (-not $exe) { throw 'ffmpeg.exe not found in the archive' }
+          Add-Content -Path $env:GITHUB_PATH -Value $exe.DirectoryName
+          $version = & $exe.FullName -hide_banner -version
+          Write-Output $version[0]
 
       - name: Install the oldest supported versions
         if: matrix.deps == 'oldest'
