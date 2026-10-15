@@ -1,0 +1,73 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Python ${{ matrix.python }} · ${{ matrix.deps }} deps
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: '3.10', deps: oldest }    # the floor requirements.txt promises
+          - { os: ubuntu-latest, python: '3.13', deps: newest }
+          - { os: windows-latest, python: '3.14', deps: newest }   # the machine the reels are made on
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+
+      - name: Install the oldest supported versions
+        if: matrix.deps == 'oldest'
+        run: python -m pip install "Pillow==10.0.0" "numpy==1.24.4" "requests==2.31.0" "pytest>=7.4,<10"
+
+      - name: Install the newest allowed versions
+        if: matrix.deps == 'newest'
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Doctor
+        run: python install.py doctor
+
+      - name: Tests
+        run: python -m pytest tests -q -rs
+
+      - name: Render the example (9:16 and 16:9) and verify it
+        shell: bash
+        run: |
+          python examples/first-reel/reel.py --fast
+          python examples/first-reel/reel.py --format 16:9 --fast
+          python skills/invokard-studio/scripts/media.py verify examples/first-reel/work/out/reel_9x16.mp4
+          python skills/invokard-studio/scripts/media.py verify examples/first-reel/work/out/reel_16x9.mp4
+
+      - name: Keep the renders
+        if: matrix.os == 'ubuntu-latest' && matrix.deps == 'newest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: first-reel
+          path: |
+            examples/first-reel/work/out/*.mp4
+            examples/first-reel/work/out/*.jpg
+          retention-days: 14
