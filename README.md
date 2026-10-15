@@ -35,18 +35,26 @@ before writing their own: that file *is* the edit.
 The agent writes `reel.py` — 60 to 150 lines that describe shots, layers, voice, effects — previews it as a contact
 sheet, fixes it, and renders. The skill (`skills/invokard-studio/SKILL.md`) is the method: what to generate and in
 what order, how to time, what to check, what things cost, what not to do. It was distilled from delivered client work,
-not from a demo.
+not from a demo. Reels are 9:16 by default; the same engine renders 16:9 and 1:1 ([formats](#formats-916-169-11)).
 
 ## Install
 
-Requirements: Python 3.10+, ffmpeg and ffprobe on PATH ([troubleshooting](skills/invokard-studio/references/troubleshooting.md)).
+You need **Python 3.10 or newer** and **ffmpeg** (it brings ffprobe) on your PATH.
+
+| | ffmpeg | Python |
+|---|---|---|
+| Windows | `winget install Gyan.FFmpeg`, then open a new terminal | python.org or `winget install Python.Python.3.13` |
+| macOS | `brew install ffmpeg` | `brew install python` |
+| Linux | `sudo apt install ffmpeg` (or your distribution's package) | usually installed |
 
 ```bash
 git clone https://github.com/Octonove/invokard-studio.git
 cd invokard-studio
-pip install -r requirements.txt
-python install.py            # detects Claude Code / Codex / Antigravity / Gemini CLI / Cursor / Windsurf and installs the skill for each
-python install.py doctor     # ffmpeg, packages, fonts, keys (names only), agents found
+python -m venv .venv                     # a private environment: Ubuntu 23.04+, Debian 12 and Homebrew refuse a global pip install
+source .venv/bin/activate                # Windows: .venv\Scripts\activate
+python -m pip install -r requirements.txt
+python install.py doctor                 # ffmpeg, packages, fonts, keys (names only), agents found: every line should be ok or --
+python install.py                        # installs the skill for Claude Code / Codex / Antigravity / Gemini CLI / Cursor / Windsurf
 ```
 
 | Agent | Where the skill goes | How to call it |
@@ -62,7 +70,60 @@ python install.py doctor     # ffmpeg, packages, fonts, keys (names only), agent
 shares it through git. `--link` uses a symlink/junction so edits in this repo apply at once. `--agents codex,cursor`
 limits the targets. `python install.py uninstall` removes what it installed.
 
-Optional: `pip install -r requirements-align.txt` (faster-whisper) for captions from a recorded narration or a song.
+Optional: `python -m pip install -r requirements-align.txt` (faster-whisper) for captions from a recorded narration or
+a song.
+
+## Your first reel in 5 minutes
+
+No account, no API key and no downloads: [`examples/first-reel`](examples/first-reel/) draws its own images and
+synthesises its own voice and music, then renders a complete 15-second reel.
+
+```bash
+python examples/first-reel/reel.py --preview         # 1. a contact sheet in a few seconds: look at it
+python examples/first-reel/reel.py                   # 2. the reel: examples/first-reel/work/out/reel_9x16.mp4 (~30 s)
+python skills/invokard-studio/scripts/media.py verify examples/first-reel/work/out/reel_9x16.mp4    # 3. check it
+python examples/first-reel/reel.py --format 16:9     # 4. the same edit for YouTube or LinkedIn
+```
+
+`verify` prints the specs (1080x1920, H.264 + AAC), the loudness (about −14 LUFS, peak under −1 dBFS) and writes a
+contact sheet taken from the final file. Open `reel.py` next to the video: it is the whole edit, about 120 lines.
+
+Then make your own: `python skills/invokard-studio/scripts/new_reel.py ~/reels/my-first --brand lime` creates a work
+folder (`img/ vo/ music/ ref/ out/ review/ …`) with a `reel.py` from the template. Drop your images in `img/`, one
+voice file per sentence in `vo/`, a track in `music/`, edit the texts and times in `reel.py`, and run
+`python reel.py --preview`, then `python reel.py`. Or let the agent do all of that:
+
+> Make a 30-second Instagram reel about this article. Use the invokard-studio skill. Brand colours from ref/logo.png.
+
+> Here are 20 clips of the job in `clips/`. Build a before/after reel with this text on screen, no voice-over, cut on
+> the music.
+
+> This is a song and its cover. Make a 20-second lyric teaser of the chorus.
+
+> Same reel in 16:9 for LinkedIn, with the screenshots in a browser window.
+
+The agent scaffolds a work folder, generates or ingests the material, previews the edit as a contact sheet
+(`review/preview.jpg`), renders (`out/reel.mp4`, `out/cover.jpg`) and verifies the file. It will not publish anything.
+
+## Formats: 9:16, 16:9, 1:1
+
+| Format | Canvas | For | Choose it with |
+|---|---|---|---|
+| 9:16 (default) | 1080x1920 | Reels, TikTok, Shorts | nothing to do |
+| 16:9 | 1920x1080 | YouTube, LinkedIn, Fiverr, presentations | `rk.set_format('16:9')`, `REELKIT_FORMAT=16:9` or `new_reel.py --format 16:9` |
+| 1:1 | 1080x1080 | feeds | `rk.set_format('1:1')` or `REELKIT_FORMAT=1:1` |
+
+```python
+import reelkit as rk
+rk.set_format('16:9')                      # first, before the next line: W and H are copied on import
+from reelkit import W, H, Reel, Captions, Still
+```
+
+Captions, headlines, list items, wipes, end cards and outros take their default positions from the format
+(`rk.LAYOUT`; 9:16 keeps the numbers it always had, so existing reels render as before). `media.py frames` and
+`extract` cut clips to the format (`--format 16:9`, or the same environment variable); a clip of the other orientation
+is fitted over its own blur. `pieces.browser_frame()` and `pieces.phone_frame()` put screenshots in a window or a phone
+for product demos. `REELKIT_LANDSCAPE=1`, the first landscape switch, still works and means 16:9.
 
 ## Connect a media provider
 
@@ -78,41 +139,67 @@ The engine renders local media without any account. To *generate* images, clips,
 Keys stay in the environment or in `.env`, never in the chat or in scripts. Details, model choices and credit prices:
 [references/providers.md](skills/invokard-studio/references/providers.md).
 
-## First reel
-
-Tell your agent what you have. Three prompts that work:
-
-> Make a 30-second Instagram reel about this article. Use the invokard-studio skill. Brand colours from ref/logo.png.
-
-> Here are 20 clips of the job in `clips/`. Build a before/after reel with this text on screen, no voice-over, cut on
-> the music.
-
-> This is a song and its cover. Make a 20-second lyric teaser of the chorus.
-
-The agent will scaffold a work folder (`python scripts/new_reel.py`), generate or ingest the material, preview the edit
-as a contact sheet (`review/preview.jpg`), render (`out/reel.mp4`, `out/cover.jpg`) and verify the file
-(`media.py verify`: specs, loudness, a contact sheet from the final MP4). It will not publish anything.
-
 ## What is in the box
 
 ```
 skills/invokard-studio/
   SKILL.md                     the method (Agent Skills standard; works in every agent that reads SKILL.md)
   references/                  production.md · footage.md · providers.md · api.md · troubleshooting.md
-  scripts/reelkit.py           the engine: sources, layers, captions, audio mix, beat grid
-  scripts/pieces.py            components: brand, headline, chips, text blocks, chart card, list items, wipe, end cards
+  scripts/reelkit.py           the engine: formats, sources, layers, captions, audio mix, beat grid
+  scripts/pieces.py            components: brand, headline, chips, text blocks, chart card, list items, wipe, screenshots, end cards
   scripts/media.py             tools: frames, extract, contact sheets, voice spans, beats, splice, verify, web, gif…
   scripts/align.py             word timings from any audio (faster-whisper), snapped to the real text
   scripts/providers/           magnific.py · elevenlabs.py · costs.py · env.py
   scripts/new_reel.py          scaffolds a work folder + reel.py from template_reel.py
   assets/fonts/ · assets/sfx/  Inter, Playfair Display (OFL); eight sound effects
   assets/examples/             schippers · ekilib · maemuki: the reel.py of each delivered reel
-examples/                      the same three plus simplificaconia: 720p copies, gifs, covers, notes
+examples/                      first-reel (runs anywhere, no outside media) · schippers · ekilib · maemuki · simplificaconia
 install.py                     install / doctor / uninstall
-tests/                         engine and installer tests (pytest; no credits, no keys)
+tests/                         pytest: engine, formats, fixes, example, installer (no credits, no keys)
+.github/workflows/tests.yml    CI: Ubuntu (Python 3.10 with the oldest versions, 3.13) and Windows (3.14)
 ```
 
-Run the tests with `python -m pytest tests -q` (needs ffmpeg).
+Run the tests with `python -m pip install -r requirements-dev.txt` and `python -m pytest tests -q` (about a minute;
+the tests that need ffmpeg are skipped without it).
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `ffmpeg was not found on PATH` / `ffprobe was not found` | Install ffmpeg (table above) and open a **new** terminal (or restart the agent) so it sees the new PATH. `python install.py doctor` shows what it finds. |
+| `error: externally-managed-environment` from pip | Your system Python is protected: create the virtual environment from [Install](#install). |
+| `... file not found (looked for ...; work folder ...)` | The path is relative to the work folder: call `rk.set_base(folder)` (the template does it) or pass an absolute path. |
+| Captions bunch up or the highlight lands on the wrong word | One voice file per sentence; the phrases (split on `.,:;?!`) must match the pauses. Write "." instead of "…". `python media.py voice <work>` prints the voiced spans. |
+| Text or captions off screen after switching to 16:9 | Call `rk.set_format()` before `from reelkit import W, H` and before building layers; remove hard-coded 9:16 positions such as `y=1440`. |
+| `... frame but the reel is 1920x1080` | A source returned a frame of another size: build sources after `rk.set_format()`. Clips extracted for the other format are cropped to fit with a note; extract them again with `media.py frames <work> <name> --format 16:9`. |
+| A render is slow | Frames are composed one by one (about 50 ms each in our tests, plus the encode): a 45 s reel takes a minute or two. `reel.render(..., preset='veryfast')` for drafts; always `--preview` first. |
+| Emoji show as boxes | `python skills/invokard-studio/scripts/media.py fonts` downloads Noto Color Emoji. |
+
+More: [references/troubleshooting.md](skills/invokard-studio/references/troubleshooting.md) (fonts, Windows console,
+TLS, provider errors).
+
+## FAQ
+
+**Do I need an AI subscription or credits?** No. The engine renders your own images, clips, voice and music for free;
+`examples/first-reel` uses none. Providers (Magnific, ElevenLabs) are only for generating new media.
+
+**Which agents does it work with?** Any that reads skills in the Agent Skills format: Claude Code, Codex, Antigravity,
+Gemini CLI, Cursor, Windsurf. Without an agent, you can write `reel.py` yourself; it is plain Python.
+
+**Can it make horizontal videos?** Yes: 16:9 and 1:1, see [Formats](#formats-916-169-11).
+
+**Will my existing 9:16 reels change?** Their layout and timing do not: 9:16 keeps every default position. Zooms and
+pans now resample about 4x faster and can differ from 1.0.0 by under one colour level on average; set
+`rk.LEGACY_RESAMPLE = True` for the exact 1.0.0 pixels.
+
+**Does it run on Windows, macOS and Linux?** It is used daily on Windows 11; CI runs the tests and a render on Windows
+and Ubuntu. macOS uses the same code paths but is not in CI yet.
+
+**Can I publish to Instagram or TikTok from it?** No, on purpose: it delivers `out/reel.mp4` and a cover; the client
+approves and publishes.
+
+**Can I reuse the example reels and their media?** The code is MIT. The media of the client examples are not: see
+[MEDIA_LICENSE.md](MEDIA_LICENSE.md).
 
 ## Design notes
 
@@ -122,14 +209,15 @@ Run the tests with `python -m pytest tests -q` (needs ffmpeg).
   cuts derive from them. With a recorded narration or a song, `align.py` gives the words.
 - **Preview before spending.** The edit is built and reviewed on still images; clips are generated last, only for the
   shots that need motion, after a cost estimate.
-- **Real footage is a first-class input.** Landscape clips are fitted over their own blur, segments come from contact
-  sheets, and cuts sit on a beat grid measured from the track.
+- **Real footage is a first-class input.** Clips of the other orientation are fitted over their own blur, segments
+  come from contact sheets, and cuts sit on a beat grid measured from the track.
 - **The mix is done.** Sidechain ducking under the voice, −14 LUFS, true-peak limiter; sound effects on the cuts.
 
 ## Status
 
-Public release, version 1.0.0. Built and verified on Windows 11 with Python 3.14 and ffmpeg 8; the code has no
-platform-specific paths (fonts are bundled, system fonts are fallbacks), but macOS and Linux have not been exercised
-yet. The 0.x TypeScript plugin for Codex is preserved under the tag `v0.2.0-codex`.
+Public release, version 1.0.0, with the changes listed under *Unreleased* in the [changelog](CHANGELOG.md). Used daily
+on Windows 11 with Python 3.14 and ffmpeg 8; CI runs on Windows (Python 3.14) and Ubuntu (Python 3.10 with the oldest
+supported versions, and 3.13). The code has no platform-specific paths (fonts are bundled, system fonts are
+fallbacks). The 0.x TypeScript plugin for Codex is preserved under the tag `v0.2.0-codex`.
 
 Licence: MIT for code and documentation ([LICENSE](LICENSE)); example media are display-only under [separate terms](MEDIA_LICENSE.md). Fonts are OFL.

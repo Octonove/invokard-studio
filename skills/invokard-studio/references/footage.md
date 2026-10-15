@@ -11,7 +11,8 @@ python scripts/media.py sheet-footage <work> <folder-with-clips>      # review/f
 
 Read the sheets like a rush log: which clips show the problem (dirty), the product, the action, the result (clean).
 Write the shot list as `(name, file, start, duration)` in the reel script. Portrait and landscape mix freely: `extract`
-fits landscape clips 1420 px wide over their own blurred copy so nothing is cropped away.
+fits landscape clips 1420 px wide over their own blurred copy so nothing is cropped away (on a 16:9 reel, add
+`--format 16:9`: landscape clips fill and portrait clips are fitted at full height).
 
 ```bash
 python scripts/media.py extract <work> <shot> IMG_4358.mp4 0.10 1.50           # auto: fill portrait / fit landscape
