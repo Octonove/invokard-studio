@@ -43,6 +43,17 @@ export async function openPage(session, composition, {props = {}, transparent = 
     throw new Error(problems[0] || clean(e));
   }
   await page.setViewportSize({width: meta.width, height: meta.height});
+  // Headless Chrome on macOS gives an inner viewport smaller than the size asked (the window frame is subtracted): grow
+  // it until the whole frame fits, and if it still does not, capture beyond the viewport.
+  const inner = () => page.evaluate(() => [window.innerWidth, window.innerHeight]);
+  for (let i = 0; i < 3; i++) {
+    const [w, h] = await inner();
+    if (w >= meta.width && h >= meta.height) break;
+    const size = page.viewportSize();
+    await page.setViewportSize({width: size.width + Math.max(0, meta.width - w), height: size.height + Math.max(0, meta.height - h)});
+  }
+  const [innerW, innerH] = await inner();
+  const beyond = innerW < meta.width || innerH < meta.height;
   const cdp = await page.context().newCDPSession(page);
   if (transparent) await cdp.send('Emulation.setDefaultBackgroundColorOverride', {color: {r: 0, g: 0, b: 0, a: 0}});
   const clip = {x: 0, y: 0, width: meta.width, height: meta.height, scale: 1};
@@ -56,7 +67,7 @@ export async function openPage(session, composition, {props = {}, transparent = 
       }
       if (problems.length) throw new Error(`Frame ${n}: ${problems[0]}`);
       const shot = await cdp.send('Page.captureScreenshot',
-        {format, ...(format === 'jpeg' ? {quality} : {}), clip, optimizeForSpeed: true, captureBeyondViewport: false});
+        {format, ...(format === 'jpeg' ? {quality} : {}), clip, optimizeForSpeed: true, captureBeyondViewport: beyond});
       return Buffer.from(shot.data, 'base64');
     },
   };
