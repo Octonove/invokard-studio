@@ -13,6 +13,11 @@
   (three.js + @react-three/fiber, drawn once per frame). CLI: `list`, `still`, `frames`, `render`, `doctor`, `browser`;
   Node API: `renderMedia`, `renderStill`, `renderStills`, `listCompositions`. Renders are deterministic: the same
   input gives the same bytes.
+- **Inside agent sandboxes**: when the sandbox forbids listing the folders above the project (Codex on Windows does),
+  esbuild stops with "Access is denied"; the engine then builds again in a safe mode that resolves every import and
+  reads every file itself, with the same result pixel for pixel. `INVOKARD_BUNDLE=safe` forces it.
+- **macOS**: the whole frame is captured. Headless Chrome on macOS painted about 87 px less than the viewport it
+  reported, and the bottom of every frame came out white.
 - **Montage + animation**: `scripts/animation.py` renders a composition from a reel script and uses it as a layer drawn
   over the montage (`layer()`, transparent frames) or as a shot (`clip()`), with props passed from Python.
 - **Examples**: `examples/animated-reel` (a reel that uses both engines, generated from scratch, rendered in CI) and
