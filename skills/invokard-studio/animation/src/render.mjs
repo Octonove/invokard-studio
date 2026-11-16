@@ -53,7 +53,8 @@ export async function openPage(session, composition, {props = {}, transparent = 
     await page.setViewportSize({width: size.width + Math.max(0, meta.width - w), height: size.height + Math.max(0, meta.height - h)});
   }
   const [innerW, innerH] = await inner();
-  const beyond = innerW < meta.width || innerH < meta.height;
+  // On macOS the window reports the size asked but paints ~87 px less in height: capture the whole clip regardless.
+  const beyond = process.platform === 'darwin' || innerW < meta.width || innerH < meta.height;
   const cdp = await page.context().newCDPSession(page);
   if (transparent) await cdp.send('Emulation.setDefaultBackgroundColorOverride', {color: {r: 0, g: 0, b: 0, a: 0}});
   const clip = {x: 0, y: 0, width: meta.width, height: meta.height, scale: 1};
