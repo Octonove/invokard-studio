@@ -84,6 +84,20 @@ test('fonts loaded by the animation are ready before its components mount', {ski
   near(pixel(r.files[0], 50, 50), [0, 255, 0, 255], 0, 'font loaded when the component mounted');
 });
 
+test('safe bundle mode (for sandboxes that forbid listing folders) draws the same frame', {skip}, async () => {
+  process.env.INVOKARD_BUNDLE = 'safe';
+  try {
+    const r = await renderStills({entry, composition: 'Basic', frames: [15], output: join(out, 'safe-15.png')});
+    const f = r.files[0];
+    near(pixel(f, 50, 50), [0x1e, 0x3a, 0x5f, 255], 0, 'navy square (safe mode)');
+    near(pixel(f, 350, 50), [0, 255, 0, 255], 0, 'sequence (safe mode)');
+    near(pixel(f, 100, 450), [255, 0, 0, 255], 3, 'image (safe mode)');
+    near(pixel(f, 480, 445), [255, 0, 0, 255], 12, 'video frame (safe mode)');
+  } finally {
+    delete process.env.INVOKARD_BUNDLE;
+  }
+});
+
 test('errors are clear: unknown composition and frames out of range', {skip}, async () => {
   await assert.rejects(renderStills({entry, composition: 'Nope', frames: [0], output: join(out, 'n.png')}), /no composition "Nope".*Basic/);
   await assert.rejects(renderStills({entry, composition: 'Basic', frames: [99], output: join(out, 'n.png')}), /outside 0-29/);
