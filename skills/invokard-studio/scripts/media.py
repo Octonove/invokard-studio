@@ -221,7 +221,7 @@ def web(mp4, out=None, height=None, crf='24'):
     out = out or os.path.splitext(mp4)[0] + '-web.mp4'
     if height: scale = f'-2:{height}'
     else: vw, vh = _video_size(mp4); scale = '-2:1280' if vh > vw else '1280:-2' if vw > vh else '720:720'
-    _ff('-i', mp4, '-vf', f'scale={scale}:flags=lanczos', '-c:v', 'libx264', '-preset', 'slow', '-crf', crf, '-maxrate', '1500k', '-bufsize', '3000k',
+    _ff('-i', mp4, '-vf', f'scale={scale}:flags=lanczos', '-c:v', 'libx264', '-preset', 'slow', '-crf', str(crf), '-maxrate', '1500k', '-bufsize', '3000k',
         '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out); print(out)
 
 def gif(mp4, out=None, width='360', fps='12', start='0', dur=None):
@@ -302,7 +302,10 @@ def main(argv):
     if missing:
         print(f'{" and ".join(missing)} not found on PATH. Install {"curl" if missing == ["curl"] else "ffmpeg (it includes ffprobe)"}, '
               'reopen the terminal and check with `python install.py doctor` (references/troubleshooting.md).'); return 1
-    return COMMANDS[cmd](*rest) or 0
+    result = COMMANDS[cmd](*rest)
+    # Only an int is an exit status (doctor returns 1 when something is missing). Other results, such as the
+    # (bpm, period, offset) tuple of beats, are values for Python callers: from the CLI the command succeeded.
+    return result if isinstance(result, int) and not isinstance(result, bool) else 0
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:]))
