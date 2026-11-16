@@ -94,10 +94,19 @@ jobs:
       - name: Animation engine (install, doctor, tests)
         working-directory: skills/invokard-studio/animation
         shell: bash
+        env: { INVOKARD_TEST_OUT: '${{ runner.temp }}/animation-test' }
         run: |
           npm ci --no-fund --no-audit
           node cli.mjs doctor
           npm test
+
+      - name: Keep the animation test renders (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: animation-test-${{ matrix.os }}-${{ matrix.python }}
+          path: ${{ runner.temp }}/animation-test
+          retention-days: 7
 
       - name: Render the montage + animation example and verify it
         shell: bash

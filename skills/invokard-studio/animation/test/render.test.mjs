@@ -3,7 +3,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {existsSync, mkdtempSync, readdirSync, rmSync} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -14,7 +14,10 @@ const ffmpeg = findFfmpeg();
 let browserOk = false;
 try { const b = await launchBrowser(); await b.browser.close(); browserOk = true; } catch { /* no browser */ }
 const skip = !ffmpeg ? 'ffmpeg not found' : !browserOk ? 'no browser' : false;
-const out = mkdtempSync(join(tmpdir(), 'invokard-test-'));
+// INVOKARD_TEST_OUT keeps the renders in that folder (CI uploads it when a test fails); otherwise a temporary folder.
+const keep = process.env.INVOKARD_TEST_OUT;
+if (keep) mkdirSync(keep, {recursive: true});
+const out = keep || mkdtempSync(join(tmpdir(), 'invokard-test-'));
 
 // RGBA of one pixel; videos are decoded as BT.709 limited range, the way players do.
 const pixel = (file, x, y, video = false) => {
@@ -86,4 +89,4 @@ test('errors are clear: unknown composition and frames out of range', {skip}, as
   await assert.rejects(renderStills({entry, composition: 'Basic', frames: [99], output: join(out, 'n.png')}), /outside 0-29/);
 });
 
-test.after(() => { if (existsSync(out)) rmSync(out, {recursive: true, force: true}); });
+test.after(() => { if (!keep && existsSync(out)) rmSync(out, {recursive: true, force: true}); });
