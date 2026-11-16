@@ -1,0 +1,6 @@
+{
+  "name": "invokard-studio-example-animated-reel",
+  "private": true,
+  "description": "The drawn parts of the animated-reel example. Rendered by skills/invokard-studio/animation (run npm install there once).",
+  "type": "module"
+}

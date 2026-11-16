@@ -1,0 +1,30 @@
+{
+  "name": "invokard-studio-animation",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Invokard Studio animation engine: videos drawn with code (React, SVG, canvas, three.js) frame by frame in a headless browser, encoded with ffmpeg.",
+  "license": "MIT",
+  "author": "Antonio José Bergoños (Octonove)",
+  "type": "module",
+  "main": "src/index.mjs",
+  "bin": {
+    "invokard-animation": "cli.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@react-three/fiber": "^9.8.2",
+    "esbuild": "^0.28.2",
+    "playwright-core": "^1.65.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "three": "^0.186.1"
+  },
+  "optionalDependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0"
+  }
+}

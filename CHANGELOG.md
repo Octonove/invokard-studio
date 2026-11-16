@@ -1,6 +1,35 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 · 16 November 2026 — the animation engine, montage + animation, the Claude Code plugin, 16:9 and 1:1
+
+- **Animation engine** (`skills/invokard-studio/animation/`, Node.js 18+): videos drawn with code. A composition is a
+  React component that draws a frame from its number; the engine bundles it with esbuild, opens it in the Chrome or
+  Edge already installed (or a headless Chromium downloaded once), renders in several tabs at once and encodes MP4
+  (H.264, BT.709 converted and tagged), ProRes 4444 with alpha, or PNG frames with alpha. API: `Composition`, `Still`,
+  `Sequence`, `Series`, `Loop`, `Freeze`, `useCurrentFrame`, `useVideoConfig`, `spring`, `measureSpring`,
+  `interpolate`, `interpolateColors`, `Easing`, `random`, `staticFile`, `Img`, `OffthreadVideo` (frames extracted with
+  ffmpeg), `delayRender`; Google Fonts downloaded once into `.invokard/fonts`, offline after that, and loaded before
+  any component mounts (components that measure text on mount get the real font); 3D through `invokard-studio/three`
+  (three.js + @react-three/fiber, drawn once per frame). CLI: `list`, `still`, `frames`, `render`, `doctor`, `browser`;
+  Node API: `renderMedia`, `renderStill`, `renderStills`, `listCompositions`. Renders are deterministic: the same
+  input gives the same bytes.
+- **Montage + animation**: `scripts/animation.py` renders a composition from a reel script and uses it as a layer drawn
+  over the montage (`layer()`, transparent frames) or as a shot (`clip()`), with props passed from Python.
+- **Examples**: `examples/animated-reel` (a reel that uses both engines, generated from scratch, rendered in CI) and
+  `examples/animation` (four animated ads: a character, a product in 3D, physics, particles; under their own terms).
+- **Claude Code plugin**: `.claude-plugin/plugin.json` and `marketplace.json`:
+  `claude plugin marketplace add Octonove/invokard-studio`, then `claude plugin install invokard-studio@invokard-studio`.
+- **Generated media, said once and openly**: when a request needs AI video, images, voices, music or 3D and no provider
+  is connected, the skill tells the user what it would add, that it is optional, and gives the Magnific or ElevenLabs
+  link marked as an affiliate link (SKILL.md § 7, references/providers.md).
+- **install.py** never copies `node_modules` or font caches; `doctor` reports Node.js and the animation engine.
+- **CLI fixes** (`media.py`): `beats` printed its tuple and exited with status 1 although it worked (only an int is an
+  exit status now); `web()` called from Python with a number for `crf` crashed. `tests/test_media_cli.py` runs the CLI
+  with every argument as a string and the same functions from Python with numbers.
+- **CI** also runs the animation engine's tests (`npm test`) and renders `examples/animated-reel` on Ubuntu, Windows and
+  macOS.
+
+Merged on 15 October 2026 (#1) and part of this release:
 
 - **Formats: 16:9 and 1:1.** `rk.set_format('16:9' | '1:1' | '9:16')`, `REELKIT_FORMAT`, or `new_reel.py --format`;
   `REELKIT_LANDSCAPE=1` (the first landscape switch) still means 16:9. Captions and pieces take their default

@@ -86,6 +86,25 @@ jobs:
           python skills/invokard-studio/scripts/media.py verify examples/first-reel/work/out/reel_9x16.mp4
           python skills/invokard-studio/scripts/media.py verify examples/first-reel/work/out/reel_16x9.mp4
 
+      # The animation engine draws in the Chrome the runners already have (Edge too on Windows): nothing to download.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Animation engine (install, doctor, tests)
+        working-directory: skills/invokard-studio/animation
+        shell: bash
+        run: |
+          npm ci --no-fund --no-audit
+          node cli.mjs doctor
+          npm test
+
+      - name: Render the montage + animation example and verify it
+        shell: bash
+        run: |
+          python examples/animated-reel/reel.py --fast
+          python skills/invokard-studio/scripts/media.py verify examples/animated-reel/work/out/reel.mp4
+
       - name: Keep the renders
         if: matrix.os == 'ubuntu-latest' && matrix.deps == 'newest'
         uses: actions/upload-artifact@v5
@@ -94,4 +113,6 @@ jobs:
           path: |
             examples/first-reel/work/out/*.mp4
             examples/first-reel/work/out/*.jpg
+            examples/animated-reel/work/out/*.mp4
+            examples/animated-reel/work/out/*.jpg
           retention-days: 14

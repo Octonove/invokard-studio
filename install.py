@@ -75,7 +75,9 @@ def place(dest, link):
             print(f'  link {target} -> {SRC}'); return target
         except Exception as e:
             print(f'  link failed ({e}); copying instead')
-    shutil.copytree(SRC, target, ignore=shutil.ignore_patterns('__pycache__', '*.pyc', 'NotoColorEmoji.ttf'))
+    # The animation engine's packages are installed where the skill lives (npm install in animation/), never copied.
+    shutil.copytree(SRC, target, ignore=shutil.ignore_patterns('__pycache__', '*.pyc', 'NotoColorEmoji.ttf', 'node_modules',
+                                                               '.invokard', 'test'))
     open(os.path.join(target, MARKER), 'w', encoding='utf-8').write('installed by install.py\n')
     print(f'  copy {target}'); return target
 
@@ -124,6 +126,16 @@ def doctor(args):
         except ImportError: row(pkg, 'missing - pip install -r requirements.txt', False)
     try: import faster_whisper; row('faster-whisper', faster_whisper.__version__ + ' (optional, align.py)')
     except ImportError: row('faster-whisper', 'not installed (optional: pip install -r requirements-align.txt)', None)
+    node = shutil.which('node')                      # the animation engine (optional: reels work without it)
+    if node:
+        nv = subprocess.run([node, '--version'], capture_output=True, text=True).stdout.strip()
+        major = int(nv.lstrip('v').split('.')[0]) if nv[1:2].isdigit() else 0
+        row('node', nv + ('' if major >= 18 else ' (the animation engine needs 18+)'), None if major >= 18 else False)
+        engine = os.path.join(SRC, 'animation')
+        here = os.path.isdir(os.path.join(engine, 'node_modules'))
+        row('animation engine', 'ready' if here else f'not installed (optional: cd "{engine}" && npm install)', True if here else None)
+    else:
+        row('node', 'not found (optional: Node.js 18+ for drawn animation, https://nodejs.org)', None)
     sys.path.insert(0, os.path.join(SRC, 'scripts'))
     try:
         import fonts

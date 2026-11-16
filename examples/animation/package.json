@@ -1,0 +1,9 @@
+{
+  "name": "invokard-studio-example-animations",
+  "private": true,
+  "description": "Four animated ads drawn with code, from the Simplifica con IA ad kit. Rendered by skills/invokard-studio/animation.",
+  "type": "module",
+  "dependencies": {
+    "planck": "1.5.1"
+  }
+}

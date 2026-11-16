@@ -4,13 +4,23 @@ Creado por **Antonio José Bergoños (Octonove)**. El código y la documentació
 
 Si te ahorra una sesión de montaje, [invítame a una Paulaner](https://www.paypal.com/donate/?business=stradoxx%40gmail.com&no_recurring=0&currency_code=EUR&item_name=Support%20Invokard%20Studio). El motor de reels funciona igual de bien sin cerveza.
 
-**Reels que parecen editados, hechos por tu agente de programación.** Una skill para Claude Code, Codex, Antigravity,
-Gemini CLI y Cursor, y un motor en Python que compone cada fotograma: subtítulos palabra a palabra con la palabra
-clave resaltada, titulares y píldoras animadas, gráficas, cortinillas de antes y después, cortes a tiempo con la
-música, tarjetas de cierre y una mezcla de audio bien hecha. Trae imágenes y clips de Magnific (o de cualquier otro
-proveedor), el metraje del propio cliente, o solo una canción y su portada.
+**Vídeos hechos con código por tu agente de programación: reels que parecen editados y animaciones que parecen
+diseñadas.** Una skill para Claude Code, Codex, Antigravity, Gemini CLI y Cursor con dos motores. El motor de
+**montaje** (Python) compone cada fotograma de un reel: subtítulos palabra a palabra con la palabra clave resaltada,
+titulares y píldoras animadas, gráficas, cortinillas de antes y después, cortes a tiempo con la música, tarjetas de
+cierre y una mezcla de audio bien hecha. El motor de **animación** (React dibujado en un navegador sin ventana y
+codificado con ffmpeg) dibuja lo que se diseña en vez de grabarse: tipografía en movimiento, anuncios animados, un
+producto en 3D, física, partículas. Un mismo script puede usar los dos. Trae imágenes y clips de Magnific (o de
+cualquier otro proveedor), el metraje del propio cliente, una canción y su portada, o nada.
 
 *Read this in English: [README.md](README.md).*
+
+**Instalar en Claude Code** (dos comandos, [detalles](#instalar)):
+
+```bash
+claude plugin marketplace add Octonove/invokard-studio
+claude plugin install invokard-studio@invokard-studio
+```
 
 | Metraje del cliente, cortado al ritmo | Ilustraciones + voz + gráfica | Una canción y su portada |
 |:---:|:---:|:---:|
@@ -22,6 +32,14 @@ Un cuarto conjunto, tres reels de prompts para [Simplifica con IA](examples/simp
 otros tres, el `reel.py` que los produjo va dentro de la skill (`skills/invokard-studio/assets/examples/`), para que
 el agente lo lea antes de escribir el suyo: ese fichero *es* el montaje.
 
+**Dibujado con código** — el motor de animación ([cuatro anuncios animados](examples/animation/) y
+[un reel que usa los dos motores](examples/animated-reel/)):
+
+| Un personaje | Un producto en 3D | Física | Partículas | Montaje + animación |
+|:---:|:---:|:---:|:---:|:---:|
+| ![Zorro](examples/animation/mascota.gif) | ![Lata](examples/animation/producto3d.gif) | ![Fruta](examples/animation/fisica.gif) | ![Partículas](examples/animation/particulas.gif) | ![Reel animado](examples/animated-reel/preview.gif) |
+| Un zorro entra con una pila de libros, casi la tira y enseña la oferta. SVG. | Una lata con gotas de condensación gira en un plató. three.js, texturas dibujadas con código. | La fruta cae, rebota en las letras y llena una caja. planck.js. | Miles de puntos de luz escriben dos mensajes y el nombre de la tienda. Canvas 2D. | Subtítulos sobre la voz, un titular y unos contadores dibujados sobre el montaje y un cierre dibujado. |
+
 ## Cómo funciona
 
 ```
@@ -31,6 +49,8 @@ el agente lo lea antes de escribir el suyo: ese fichero *es* el montaje.
    canción / locución grabada ──▶ align.py (faster-whisper) ──▶ subtítulos desde palabras con tiempo
                                         │
                               reel.py  ─┴─▶  reelkit: fotogramas con Pillow ──▶ ffmpeg h264 + mezcla ──▶ out/reel.mp4 + portada
+                                 ▲
+   animación (src/index.jsx) ──▶ React fotograma a fotograma en Chrome/Edge ──▶ MP4, o fotogramas transparentes sobre el montaje
 ```
 
 El agente escribe `reel.py` (entre 60 y 150 líneas que describen planos, capas, voz y efectos), lo previsualiza como
@@ -41,7 +61,22 @@ clientes, no de una demo. Los reels son 9:16 por defecto; el mismo motor renderi
 
 ## Instalar
 
-Necesitas **Python 3.10 o posterior** y **ffmpeg** (trae ffprobe) en el PATH.
+### Claude Code: como plugin
+
+```bash
+claude plugin marketplace add Octonove/invokard-studio
+claude plugin install invokard-studio@invokard-studio
+```
+
+Después pide un reel o una animación, o escribe `/invokard-studio`. `claude plugin update invokard-studio@invokard-studio`
+trae la última versión y `claude plugin uninstall invokard-studio@invokard-studio` lo quita. Para probarlo en una sola
+sesión sin instalar nada: clona el repositorio y ejecuta `claude --plugin-dir ./invokard-studio`. El agente sigue
+necesitando Python y ffmpeg en el equipo (abajo); la primera vez que dibuja una animación ejecuta `npm install` en la
+carpeta `animation/` de la skill (Node.js 18+).
+
+### Cualquier agente: con el instalador
+
+Necesitas **Python 3.10 o posterior** y **ffmpeg** (trae ffprobe) en el PATH; **Node.js 18+** para la animación dibujada.
 
 | | ffmpeg | Python |
 |---|---|---|
@@ -73,7 +108,40 @@ equipo la comparta por git. `--link` usa un enlace simbólico o junction: lo que
 momento. `--agents codex,cursor` limita los destinos. `python install.py uninstall` quita lo instalado.
 
 Opcional: `python -m pip install -r requirements-align.txt` (faster-whisper) para subtítulos a partir de una locución
-grabada o una canción.
+grabada o una canción. Para la animación dibujada: `cd skills/invokard-studio/animation && npm install` (unos 120 MB;
+usa el Chrome o el Edge que ya tienes, así que no descarga ningún navegador) y después `node cli.mjs doctor`.
+
+## Dibujar animaciones con código
+
+El motor de animación dibuja componentes de React fotograma a fotograma: cada fotograma se calcula a partir de su
+número, así que muelles, curvas, física y partículas salen exactamente igual en cada render, en cualquier orden y en
+varias pestañas del navegador a la vez. Un proyecto de animación es una carpeta con `src/index.jsx`:
+
+```jsx
+import {AbsoluteFill, Composition, registerRoot, spring, useCurrentFrame, useVideoConfig} from 'invokard-studio';
+import {loadFont} from 'invokard-studio/google-fonts/Outfit';
+const {fontFamily} = loadFont('normal', {weights: ['800']});
+
+const Titulo = ({texto}) => {
+  const frame = useCurrentFrame(), {fps} = useVideoConfig();
+  return <AbsoluteFill style={{background: '#1E3A5F', alignItems: 'center', justifyContent: 'center'}}>
+    <div style={{fontFamily, fontSize: 140, color: '#fff', transform: `scale(${spring({frame, fps})})`}}>{texto}</div>
+  </AbsoluteFill>;
+};
+registerRoot(() => <Composition id="Titulo" component={Titulo} width={1080} height={1920} fps={30} durationInFrames={90} defaultProps={{texto: 'Hola'}} />);
+```
+
+```bash
+node skills/invokard-studio/animation/cli.mjs still  src/index.jsx Titulo out/titulo.png --frame 45
+node skills/invokard-studio/animation/cli.mjs render src/index.jsx Titulo out/titulo.mp4 --props '{"texto":"Hola"}'
+node skills/invokard-studio/animation/cli.mjs render src/index.jsx Titulo out/titulo --transparent    # PNG con transparencia
+```
+
+Secuencias, series, bucles, fotogramas congelados, imágenes y clips de vídeo de `public/`, cualquier tipografía de
+Google (se descarga una vez y después funciona sin internet), 3D con three.js, MP4 (H.264, BT.709), ProRes 4444 o PNG
+con transparencia. En un reel, las animaciones transparentes son capas sobre el montaje y las opacas son planos
+(`scripts/animation.py`). Toda la API, las reglas y los problemas frecuentes:
+[references/animation.md](skills/invokard-studio/references/animation.md).
 
 ## Tu primer reel en 5 minutos
 
@@ -142,6 +210,12 @@ El motor renderiza medios locales sin ninguna cuenta. Para *generar* imágenes, 
 - **ElevenLabs**: `ELEVENLABS_API_KEY` → `scripts/providers/elevenlabs.py`, con tiempos por palabra.
 - **Tus propios ficheros**: fotos, clips, una voz grabada, una pista con licencia, en la carpeta de trabajo.
 
+Cuentas: [Magnific](https://referral.magnific.com/mzRMqYi) (imágenes, vídeo, voces, música, modelos 3D y ampliación en
+una sola cuenta) y [ElevenLabs](https://try.elevenlabs.io/8mzpivmdou1e) (voces). Son enlaces de afiliado: si te
+suscribes a través de ellos, Invokard Studio recibe una comisión sin coste extra para ti, y eso ayuda a que la
+herramienta siga siendo gratis. Cuando pides algo que necesita medios generados y no hay ninguno conectado, el agente
+los menciona una vez, con esta misma nota; todo lo demás funciona sin ninguna cuenta.
+
 Las claves viven en el entorno o en `.env`, nunca en el chat ni en los scripts. Modelos, decisiones y precios en
 créditos: [references/providers.md](skills/invokard-studio/references/providers.md).
 
@@ -159,14 +233,20 @@ skills/invokard-studio/
   scripts/new_reel.py          crea la carpeta de trabajo y un reel.py desde template_reel.py
   assets/fonts/ · assets/sfx/  Inter, Playfair Display (OFL); ocho efectos de sonido
   assets/examples/             schippers · ekilib · maemuki: el reel.py de cada reel entregado
-examples/                      first-reel (funciona en cualquier sitio, sin medios de fuera) · schippers · ekilib · maemuki · simplificaconia
+  scripts/animation.py         el puente: dibuja una animación y la usa como capa o como plano de un reel
+  animation/                   el motor de animación: cli.mjs, src/ (runtime, empaquetador, renderizador), test/
+  references/animation.md      su API, comandos y reglas
+examples/                      first-reel (funciona en cualquier sitio, sin medios de fuera) · animated-reel (los dos
+                               motores) · animation (cuatro anuncios animados) · schippers · ekilib · maemuki · simplificaconia
+.claude-plugin/                plugin.json + marketplace.json: instalar como plugin de Claude Code
 install.py                     install / doctor / uninstall
 tests/                         pytest: motor, formatos, arreglos, ejemplo, instalador (sin créditos ni claves)
-.github/workflows/tests.yml    CI: Ubuntu (Python 3.10 con las versiones mínimas, 3.13), Windows (3.14), macOS (3.13)
+.github/workflows/tests.yml    CI: Ubuntu (Python 3.10 con las versiones mínimas, 3.13), Windows (3.14), macOS (3.13);
+                               las pruebas del motor de animación y el render de animated-reel en todos
 ```
 
 Los tests se ejecutan con `python -m pip install -r requirements-dev.txt` y `python -m pytest tests -q` (alrededor de
-un minuto; sin ffmpeg se saltan los que lo necesitan).
+un minuto; sin ffmpeg se saltan los que lo necesitan), y `npm test` en `skills/invokard-studio/animation`.
 
 ## Problemas frecuentes
 
@@ -186,8 +266,15 @@ Windows, TLS, errores de proveedores).
 
 ## Preguntas frecuentes
 
-**¿Necesito una suscripción de IA o créditos?** No. El motor renderiza gratis tus imágenes, clips, voz y música;
-`examples/first-reel` no usa nada de eso. Los proveedores (Magnific, ElevenLabs) solo sirven para generar medios nuevos.
+**¿Necesito una suscripción de IA o créditos?** No. Los motores renderizan gratis tus imágenes, clips, voz y música,
+y todo lo dibujado con código; `examples/first-reel` y `examples/animated-reel` no usan nada de eso. Los proveedores
+(Magnific, ElevenLabs) solo sirven para generar medios nuevos; los enlaces de arriba son de afiliado.
+
+**¿Necesito Node.js?** Solo para la animación dibujada (Node.js 18+ y un `npm install`). Los reels con el motor de
+montaje solo necesitan Python y ffmpeg.
+
+**¿El motor de animación descarga un navegador?** No, si tienes Chrome o Edge (Edge siempre está en Windows). Si no,
+`node cli.mjs browser` descarga un Chromium sin ventana una sola vez.
 
 **¿Con qué agentes funciona?** Con cualquiera que lea skills en el formato Agent Skills: Claude Code, Codex,
 Antigravity, Gemini CLI, Cursor, Windsurf. Sin agente también puedes escribir `reel.py` a mano: es Python normal.
@@ -220,9 +307,11 @@ ver [MEDIA_LICENSE.md](MEDIA_LICENSE.md).
 
 ## Estado
 
-Versión pública 1.0.0, con los cambios de la sección *Unreleased* del [registro de cambios](CHANGELOG.md). Se usa a
+Versión pública 1.1.0 (el motor de animación, el plugin de Claude Code y los cambios del
+[registro de cambios](CHANGELOG.md)). Se usa a
 diario en Windows 11 con Python 3.14 y ffmpeg 8; el CI corre en Windows (Python 3.14), macOS (3.13) y Ubuntu (Python
 3.10 con las versiones mínimas, y 3.13). El código no tiene rutas de plataforma (las fuentes van empaquetadas y las del sistema son
 el respaldo). El plugin 0.x en TypeScript para Codex se conserva bajo la etiqueta `v0.2.0-codex`.
 
-Licencia: MIT para código y documentación ([LICENSE](LICENSE)); los medios de ejemplo solo pueden mostrarse según sus [términos separados](MEDIA_LICENSE.md). Las fuentes conservan su licencia OFL.
+Licencia: MIT para código y documentación ([LICENSE](LICENSE)); los medios de ejemplo, y los cuatro anuncios animados
+de `examples/animation`, tienen [términos separados](MEDIA_LICENSE.md). Las fuentes conservan su licencia OFL.

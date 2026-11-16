@@ -25,3 +25,10 @@ skills/invokard-studio/assets/fonts/NotoColorEmoji.ttf
 Thumbs.db
 .idea/
 .vscode/
+
+# animation engine: packages (npm install) and the per-project cache of downloaded fonts
+node_modules/
+.invokard/
+
+# renders of the animation examples
+examples/animation/out/

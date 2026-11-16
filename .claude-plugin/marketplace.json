@@ -1,0 +1,27 @@
+{
+  "name": "invokard-studio",
+  "owner": {
+    "name": "Octonove",
+    "url": "https://github.com/Octonove"
+  },
+  "metadata": {
+    "description": "Invokard Studio: reels and animations made with code by your coding agent."
+  },
+  "plugins": [
+    {
+      "name": "invokard-studio",
+      "source": "./",
+      "description": "Videos made with code by your coding agent: reels with word-by-word captions, voice-over, music cut on the beat, before/after wipes and end cards, plus animations drawn frame by frame (kinetic type, animated ads, charts, 3D products, physics). 9:16, 16:9 and 1:1.",
+      "category": "productivity",
+      "homepage": "https://invokard.com/tools/invokard-studio",
+      "keywords": [
+        "video",
+        "reels",
+        "animation",
+        "motion-graphics",
+        "captions",
+        "shorts"
+      ]
+    }
+  ]
+}
