@@ -1,10 +1,13 @@
-// Local server for the render page: the bundle, the project's public/ folder, Google Fonts (downloaded once and kept
-// in the project's .invokard/fonts, so later renders work offline) and frames of video files extracted with ffmpeg.
+// Local server for the render page: the bundle, the project's public/ folder, fonts and frames of video files
+// extracted with ffmpeg. Fonts come from the bundled library (animation/fonts) first, then from the project's cache
+// (.invokard/fonts), and only then from Google Fonts, downloaded once and cached so later renders work offline.
+// A local-only build (a LOCAL_ONLY file next to package.json, or INVOKARD_OFFLINE=1) never uses the network.
 import http from 'node:http';
 import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync} from 'node:fs';
-import {extname, join, resolve, sep} from 'node:path';
+import {dirname, extname, join, resolve, sep} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -16,6 +19,12 @@ const MIME = {
 };
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 const sha = (s) => createHash('sha1').update(s).digest('hex').slice(0, 20);
+
+// Bundled open-licensed fonts (built with tools/fetch_fonts.mjs): family name -> folder with font.css and its files.
+const LIB = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'fonts');
+const LIBRARY = (() => { try { return JSON.parse(readFileSync(join(LIB, 'index.json'), 'utf8')); } catch { return {}; } })();
+export const bundledFonts = () => Object.keys(LIBRARY);
+export const OFFLINE = process.env.INVOKARD_OFFLINE === '1' || existsSync(resolve(LIB, '..', 'LOCAL_ONLY'));
 
 const inside = (base, rel) => {
   const full = resolve(base, rel);
@@ -35,10 +44,17 @@ const sendFile = (res, file) => {
 // ---------------------------------------------------------------- fonts
 async function fontCss(res, search, fontsDir) {
   const query = new URLSearchParams(search);
+  const family = (query.get('family') || '').split(':')[0];
+  // A bundled family: every weight and style it ships is declared; the browser picks the ones the text uses.
+  if (LIBRARY[family]) return sendFile(res, join(LIB, LIBRARY[family], 'font.css'));
   const wanted = new Set([...(query.get('subsets') || 'latin').split(','), 'latin', 'latin-ext']);
   query.delete('subsets');
   const cssFile = join(fontsDir, 'css', `${sha(query.toString())}.css`);
   if (existsSync(cssFile)) return send(res, 200, readFileSync(cssFile), MIME['.css']);
+  if (OFFLINE) {
+    return send(res, 404, `The font "${family}" is not bundled and this build does not use the network. ` +
+      `Bundled: ${bundledFonts().join(', ')}. Or put your own font file in public/ and declare it with @font-face.`);
+  }
   let css;
   try {
     const r = await fetch(`https://fonts.googleapis.com/css2?${query.toString()}`, {headers: {'user-agent': CHROME_UA}});
@@ -104,12 +120,14 @@ export async function startServer({bundleDir, publicDir, fontsDir, videoDir, ffm
       if (path.startsWith('/public/')) return sendFile(res, inside(publicDir, path.slice('/public/'.length)));
       if (path === '/__fonts/css2') return await fontCss(res, url.search, fontsDir);
       if (path.startsWith('/__fonts/file/')) return sendFile(res, inside(fontsDir, path.slice('/__fonts/file/'.length)));
+      if (path.startsWith('/__fonts/lib/')) return sendFile(res, inside(LIB, path.slice('/__fonts/lib/'.length)));
       if (path === '/__video') {
         if (!ffmpeg) return send(res, 500, 'ffmpeg is needed to show video files');
         const src = url.searchParams.get('src') || '';
         const fps = Number(url.searchParams.get('fps')) || 30;
         const t = Math.max(0, Number(url.searchParams.get('t')) || 0);
         const local = src.startsWith('/public/') ? inside(publicDir, decodeURIComponent(src.slice('/public/'.length))) : null;
+        if (!local && OFFLINE) return send(res, 404, `This build does not use the network: copy ${src} into public/`);
         const source = local || (/^https?:\/\//.test(src) ? src : null);
         if (!source || (local && !existsSync(local))) return send(res, 404, `Video not found: ${src}`);
         const {dir, count} = await videoFrames(ffmpeg, source, fps, videoDir, videos);

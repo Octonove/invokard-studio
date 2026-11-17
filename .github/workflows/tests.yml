@@ -100,6 +100,10 @@ jobs:
           node cli.mjs doctor
           npm test
 
+      - name: Build and audit the local plugin (Invokard Studio Local)
+        if: matrix.os == 'ubuntu-latest' && matrix.deps == 'newest'
+        run: python local-plugin/build.py "$RUNNER_TEMP/invokard-studio-local"
+
       - name: Keep the animation test renders (on failure)
         if: failure()
         uses: actions/upload-artifact@v5

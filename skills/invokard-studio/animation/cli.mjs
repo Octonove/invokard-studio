@@ -15,6 +15,7 @@ import {existsSync, readFileSync} from 'node:fs';
 import {basename, extname} from 'node:path';
 import {defaultConcurrency, findFfmpeg, installBrowser, launchBrowser, listCompositions, renderMedia, renderStills}
   from './src/index.mjs';
+import {bundledFonts, OFFLINE} from './src/server.mjs';
 
 const argv = process.argv.slice(2);
 const flags = {};
@@ -53,6 +54,8 @@ try {
       await b.browser.close();
     } catch (e) { console.log(`browser: NOT FOUND\n${e.message}`); process.exitCode = 1; }
     console.log(`tabs per render: ${defaultConcurrency()}`);
+    console.log(`fonts: ${bundledFonts().length} bundled families (${bundledFonts().join(', ')}); ` +
+      (OFFLINE ? 'local build: nothing is downloaded' : 'any other Google Fonts family is downloaded once and cached'));
   } else if (command === 'browser') {
     process.exit(installBrowser());
   } else if (command === 'list') {

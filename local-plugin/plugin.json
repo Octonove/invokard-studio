@@ -1,0 +1,23 @@
+{
+  "name": "invokard-studio-local",
+  "displayName": "Invokard Studio Local",
+  "version": "1.1.0",
+  "description": "Videos made with code, entirely on your computer: reels from your own photos, clips, voice and music with word-by-word captions, animated headlines, charts, wipes and cuts on the beat, plus animations drawn frame by frame (kinetic type, animated ads, 3D, physics, particles). No accounts, no API keys, nothing sent anywhere.",
+  "author": {
+    "name": "Antonio José Bergoños (Octonove)",
+    "url": "https://github.com/Octonove"
+  },
+  "homepage": "https://github.com/Octonove/invokard-studio-local",
+  "repository": "https://github.com/Octonove/invokard-studio-local",
+  "license": "MIT",
+  "keywords": [
+    "video",
+    "reels",
+    "animation",
+    "motion-graphics",
+    "captions",
+    "subtitles",
+    "ffmpeg",
+    "local"
+  ]
+}

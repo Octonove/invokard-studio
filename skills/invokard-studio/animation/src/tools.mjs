@@ -5,6 +5,7 @@ import {createRequire} from 'node:module';
 import {existsSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {chromium} from 'playwright-core';
+import {OFFLINE} from './server.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -47,12 +48,16 @@ export async function launchBrowser({executablePath, channel, gl} = {}) {
       problems.push(`${t.executablePath || t.channel || 'downloaded Chromium'}: ${String(e.message).split('\n')[0]}`);
     }
   }
-  throw new Error('No browser could be started. Install Google Chrome or Microsoft Edge, or download one for the engine with ' +
-    '`node cli.mjs browser` (about 100 MB, once).\n' + problems.join('\n'));
+  throw new Error('No browser could be started. Install Google Chrome or Microsoft Edge' + (OFFLINE ? '.\n' :
+    ', or download one for the engine with `node cli.mjs browser` (about 100 MB, once).\n') + problems.join('\n'));
 }
 
 // Downloads the headless Chromium build that playwright-core uses, into its own cache folder.
 export function installBrowser() {
+  if (OFFLINE) {
+    console.error('This local build downloads nothing: install Google Chrome or Microsoft Edge, and the engine uses it.');
+    return 1;
+  }
   const cli = join(dirname(require.resolve('playwright-core/package.json')), 'cli.js');
   const r = spawnSync(process.execPath, [cli, 'install', 'chromium-headless-shell'], {stdio: 'inherit'});
   return r.status ?? 1;

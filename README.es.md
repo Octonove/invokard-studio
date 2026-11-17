@@ -74,6 +74,14 @@ sesión sin instalar nada: clona el repositorio y ejecuta `claude --plugin-dir .
 necesitando Python y ffmpeg en el equipo (abajo); la primera vez que dibuja una animación ejecuta `npm install` en la
 carpeta `animation/` de la skill (Node.js 18+).
 
+### Todo en local: Invokard Studio Local
+
+[Invokard Studio Local](https://github.com/Octonove/invokard-studio-local) son los mismos dos motores sin servicios
+en línea: sin proveedores, sin descargas mientras trabaja y con quince tipografías incluidas. Se genera desde este
+repositorio (`python local-plugin/build.py <carpeta>`) y se instala igual:
+`claude plugin marketplace add Octonove/invokard-studio-local` y después
+`claude plugin install invokard-studio-local@invokard-studio-local`.
+
 ### Cualquier agente: con el instalador
 
 Necesitas **Python 3.10 o posterior** y **ffmpeg** (trae ffprobe) en el PATH; **Node.js 18+** para la animación dibujada.

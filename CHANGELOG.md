@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Bundled fonts.** Fifteen open-licensed families (Inter, Outfit, Figtree, Poppins, Montserrat, Space Grotesk,
+  Barlow, Barlow Condensed, Oswald, Anton, Bebas Neue, Playfair Display, Fraunces, Shrikhand, Caveat; SIL OFL, every
+  weight, latin and latin-ext) ship in `animation/fonts` and never touch the network. Other Google Fonts families
+  are still downloaded once and cached. `node cli.mjs doctor` lists them; `tools/fetch_fonts.mjs` rebuilds the set.
+- **Offline switch.** `INVOKARD_OFFLINE=1` (or a `LOCAL_ONLY` file next to the engine's package.json) turns every
+  download off: fonts, the browser download and remote videos. Tested in `test/offline.test.mjs`.
+- **Invokard Studio Local**, a separate plugin for Anthropic's directory built from this repository with
+  `local-plugin/build.py`: the same engines without the provider integrations, the affiliate links, Whisper or any
+  download; CI builds it and audits it on every change.
+
 ## 1.1.0 · 16 November 2026 — the animation engine, montage + animation, the Claude Code plugin, 16:9 and 1:1
 
 - **Animation engine** (`skills/invokard-studio/animation/`, Node.js 18+): videos drawn with code. A composition is a

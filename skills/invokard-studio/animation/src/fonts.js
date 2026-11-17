@@ -2,8 +2,9 @@
 //   import {loadFont} from 'invokard-studio/google-fonts/Inter';
 //   const {fontFamily} = loadFont('normal', {weights: ['400', '700'], subsets: ['latin']});
 // or, for any family name:  import {loadGoogleFont} from 'invokard-studio/google-fonts';
-// The renderer downloads each font once and keeps it in the project (.invokard/fonts), so later renders work offline.
-// No frame is captured until the requested weights are loaded.
+// Fifteen open-licensed families ship with the engine (animation/fonts) and never touch the network; any other family
+// is downloaded once and kept in the project (.invokard/fonts), so later renders work offline. A local-only build
+// uses the bundled families only. No frame is captured until the requested weights are loaded.
 import {continueRender, delayRender, __invokard} from 'invokard-studio';
 
 export const createFont = (family) => (style = 'normal', options = {}) => {
@@ -24,7 +25,8 @@ export const createFont = (family) => (style = 'normal', options = {}) => {
         .then(() => { continueRender(handle); resolve(); }, reject);
     };
     link.onerror = () => reject(new Error(`Could not load the font "${family}" (${style} ${weights.join(', ')}). ` +
-      'The first render downloads it from Google Fonts and needs internet; after that it is kept in .invokard/fonts.'));
+      'It is not one of the bundled families (`node cli.mjs doctor` lists them) and it could not be downloaded: ' +
+      'check the name, or the connection (a local-only build never downloads fonts).'));
     document.head.appendChild(link);
   });
   done.catch((e) => __invokard.setFatal(e.message));

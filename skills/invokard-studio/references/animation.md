@@ -30,9 +30,12 @@ my-ad/
 ```
 
 React, three.js and @react-three/fiber come from the engine: a project needs its own `node_modules` only for other
-libraries (`npm install planck` for physics, `d3` for charts…). Fonts downloaded on the first render are kept in
-`.invokard/fonts/`, so later renders work offline (ship that folder with a template to make it work offline from the
-first render).
+libraries (`npm install planck` for physics, `d3` for charts…). Fifteen open-licensed families ship with the engine
+(`animation/fonts`, listed by `node cli.mjs doctor`) and never touch the network: Inter, Outfit, Figtree, Poppins,
+Montserrat, Space Grotesk, Barlow, Barlow Condensed, Oswald, Anton, Bebas Neue, Playfair Display, Fraunces, Shrikhand
+and Caveat. Any other Google Fonts family is downloaded on its first render and kept in `.invokard/fonts/`, so later
+renders work offline (ship that folder with a template to make it work offline from the first render).
+`INVOKARD_OFFLINE=1` turns every download off.
 
 ```jsx
 import React from 'react';
@@ -151,6 +154,6 @@ of this: `examples/animated-reel/reel.py` in the repository.
 | `The animation does not build: … No matching export … for import "X"` | that piece of API does not exist (§ 4): write it with what does |
 | `Two copies of React` / `Cannot read properties of null (reading 'useState')` | the engine forces one React; if you see it, delete the project's `node_modules/react*` duplicates and report it |
 | `The frame was not ready after 30 s. Still waiting for: …` | a `delayRender` without its `continueRender`, an image that never loads, or a slow font: the label says which |
-| `Could not load the font …` | the first render of a font needs internet; after that it is cached in `.invokard/fonts` |
+| `Could not load the font …` | not a bundled family, and it could not be downloaded: check the name and the connection (after the first download it is cached in `.invokard/fonts`) |
 | Text in another font in the video | the font name: the module is the family without spaces (`BarlowSemiCondensed`); check with a `still` |
 | 3D frame black | `--gl angle`, then `--gl swangle` |

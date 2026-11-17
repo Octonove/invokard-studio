@@ -160,8 +160,8 @@ and the scenes in `pieces` (`wipe_scene`, `outro_save`, `outro_fan`, `blur_in`).
 Set up once: Node.js 18+, then `npm install` inside `<skill>/animation` and `node <skill>/animation/cli.mjs doctor`.
 A project is a folder with `package.json`, `src/index.jsx` (`registerRoot` + one `<Composition>` per video) and
 `public/` for its files. Components import from `'invokard-studio'`: `useCurrentFrame`, `spring`, `interpolate`,
-`Sequence`, `Img` + `staticFile`, `OffthreadVideo`, fonts from `'invokard-studio/google-fonts/<Family>'`, 3D from
-`'invokard-studio/three'`.
+`Sequence`, `Img` + `staticFile`, `OffthreadVideo`, fonts from `'invokard-studio/google-fonts/<Family>'` (fifteen
+families ship with the engine and need no network; any other is downloaded once), 3D from `'invokard-studio/three'`.
 
 ```bash
 node <skill>/animation/cli.mjs still  src/index.jsx Ad out/ad.png --frame 120     # 1. design the key frame
