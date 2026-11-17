@@ -1,4 +1,4 @@
-"""Builds Invokard Studio Local, the plugin for Anthropic's directory, from this repository.
+"""Builds Invokard Studio Local, the edition with no online services, from this repository.
 
 The engines are copied from skills/invokard-studio (so both editions stay identical where they overlap); every part
 that uses online media services or the network is taken out with exact replacements, and the build stops if one of

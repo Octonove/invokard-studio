@@ -8,7 +8,7 @@
   are still downloaded once and cached. `node cli.mjs doctor` lists them; `tools/fetch_fonts.mjs` rebuilds the set.
 - **Offline switch.** `INVOKARD_OFFLINE=1` (or a `LOCAL_ONLY` file next to the engine's package.json) turns every
   download off: fonts, the browser download and remote videos. Tested in `test/offline.test.mjs`.
-- **Invokard Studio Local**, a separate plugin for Anthropic's directory built from this repository with
+- **Invokard Studio Local**, a separate plugin with no online services, built from this repository with
   `local-plugin/build.py`: the same engines without the provider integrations, the affiliate links, Whisper or any
   download; CI builds it and audits it on every change.
 
