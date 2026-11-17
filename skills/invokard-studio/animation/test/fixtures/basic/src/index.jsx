@@ -2,7 +2,9 @@
 import React, {useState} from 'react';
 import {AbsoluteFill, Composition, Freeze, Img, Loop, OffthreadVideo, Sequence, Series, Still, interpolate, registerRoot,
   staticFile, useCurrentFrame, useVideoConfig} from 'invokard-studio';
-import {loadFont} from 'invokard-studio/google-fonts/Inter';
+// Roboto is not one of the bundled families (fonts/index.json): this project covers the download and the cache in
+// .invokard/fonts. The bundled families are covered by test/offline.test.mjs.
+import {loadFont} from 'invokard-studio/google-fonts/Roboto';
 
 const {fontFamily} = loadFont('normal', {weights: ['700'], subsets: ['latin']});
 const box = (left, top, background, size = 100) => ({position: 'absolute', left, top, width: size, height: size, background});
