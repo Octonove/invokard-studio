@@ -70,6 +70,8 @@ def build(out):
     copy(os.path.join(REPO, 'LICENSE'), os.path.join(out, 'LICENSE'))
     write(os.path.join(out, '.claude-plugin', 'plugin.json'), read(os.path.join(HERE, 'plugin.json')))
     write(os.path.join(out, '.claude-plugin', 'marketplace.json'), read(os.path.join(HERE, 'marketplace.json')))
+    # The directory takes the listing icon from .claude-plugin/icon.png once, the first time the plugin is saved there.
+    copy(os.path.join(HERE, 'icon.png'), os.path.join(out, '.claude-plugin', 'icon.png'))
     write(os.path.join(out, '.github', 'workflows', 'test.yml'), read(os.path.join(HERE, 'test.yml')))
     write(os.path.join(out, '.gitignore'),'node_modules/\n.invokard/\n__pycache__/\n*.pyc\nwork/\n**/frames/\n**/review/\n'
           '*.f.png\n.DS_Store\nThumbs.db\n')
